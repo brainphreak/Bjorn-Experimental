@@ -76,7 +76,7 @@ check_python() {
 }
 
 #
-# Check for Bjorn dependencies
+# Check and install Bjorn dependencies automatically
 #
 check_dependencies() {
     LOG ""
@@ -103,30 +103,16 @@ check_dependencies() {
         LOG ""
         LOG "red" "Missing dependencies:$MISSING"
         LOG ""
-        LOG "green" "GREEN = Install dependencies (requires internet)"
-        LOG "red" "RED   = Continue anyway"
+        LOG "Installing dependencies automatically..."
         LOG ""
-
-        BUTTON=$(WAIT_FOR_INPUT 2>/dev/null)
-        case "$BUTTON" in
-            "GREEN"|"A")
-                LOG ""
-                LOG "Installing dependencies..."
-                LOG ""
-                opkg update 2>&1 | while IFS= read -r line; do LOG "  $line"; done
-                opkg install nmap python3-pip 2>&1 | while IFS= read -r line; do LOG "  $line"; done
-                LOG ""
-                LOG "Installing Python packages via pip..."
-                pip3 install python-nmap paramiko pysmb pymysql 2>&1 | while IFS= read -r line; do LOG "  $line"; done
-                LOG ""
-                LOG "green" "Dependencies installed!"
-                sleep 1
-                ;;
-            *)
-                LOG "Continuing without some dependencies..."
-                sleep 1
-                ;;
-        esac
+        opkg update 2>&1 | while IFS= read -r line; do LOG "  $line"; done
+        opkg install nmap python3-pip 2>&1 | while IFS= read -r line; do LOG "  $line"; done
+        LOG ""
+        LOG "Installing Python packages via pip..."
+        pip3 install python-nmap paramiko pysmb pymysql 2>&1 | while IFS= read -r line; do LOG "  $line"; done
+        LOG ""
+        LOG "green" "Dependencies installed!"
+        sleep 1
     else
         LOG "green" "All dependencies found!"
     fi
@@ -167,6 +153,9 @@ if [ ! -f "$PAYLOAD_DIR/libpagerctl.so" ]; then
     exit 1
 fi
 
+# Check dependencies automatically
+check_dependencies
+
 # Show menu
 LOG ""
 LOG "green" "=========================================="
@@ -179,7 +168,6 @@ LOG "Scans networks, finds vulnerabilities,"
 LOG "and collects credentials automatically."
 LOG ""
 LOG "green" "  GREEN = Start Bjorn"
-LOG "  UP    = Check Dependencies"
 LOG "red" "  RED   = Exit"
 LOG ""
 
@@ -194,11 +182,6 @@ case "$BUTTON" in
         cd "$PAYLOAD_DIR"
         python3 Bjorn.py
         /etc/init.d/pineapplepager start 2>/dev/null
-        ;;
-    "UP")
-        check_dependencies
-        # Re-show menu
-        exec "$0"
         ;;
     "RED"|"B"|*)
         LOG ""
