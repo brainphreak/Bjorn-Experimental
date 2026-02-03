@@ -1,39 +1,19 @@
 # macOS
 .DS_Store
-.AppleDouble
-.LSOverride
 
-# Python
+# Python bytecode (regenerated automatically)
 __pycache__/
-*.py[cod]
-*$py.class
-.Python
-
-# Ignore .so files except bundled ones
-*.so
-!payloads/user/reconnaissance/pager_bjorn/libpagerctl.so
-!payloads/user/reconnaissance/pager_bjorn/bin/*.so*
-!payloads/user/reconnaissance/pager_bjorn/lib/**/*.so
-!payloads/user/reconnaissance/pager_bjorn/lib/*.so*
-*.egg-info/
-.eggs/
-dist/
-build/
+*.pyc
 
 # IDE
 .idea/
 .vscode/
 *.swp
-*.swo
 
-# Logs
+# Runtime data created on Pager
+loot/
+logs/
 *.log
 
-# Runtime data on Pager (not needed in repo)
-loot/
-output/
-logs/
-
-# Local dev files
-*.local
+# Local dev
 .env
