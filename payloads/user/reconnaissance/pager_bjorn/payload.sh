@@ -76,6 +76,103 @@ check_python() {
 }
 
 #
+# Check network connectivity and select interface
+#
+SELECTED_INTERFACE=""
+SELECTED_IP=""
+
+check_network() {
+    LOG ""
+    LOG "Checking network connectivity..."
+
+    # Get interfaces with IP addresses (exclude loopback)
+    INTERFACES=()
+    IPS=()
+
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^[0-9]+:\ ([^:]+): ]]; then
+            CURRENT_IFACE="${BASH_REMATCH[1]}"
+        elif [[ "$line" =~ inet\ ([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+) ]]; then
+            IP="${BASH_REMATCH[1]}"
+            if [[ "$IP" != "127.0.0.1" && -n "$CURRENT_IFACE" ]]; then
+                INTERFACES+=("$CURRENT_IFACE")
+                IPS+=("$IP")
+            fi
+        fi
+    done < <(ip addr 2>/dev/null)
+
+    NUM_IFACES=${#INTERFACES[@]}
+
+    if [ "$NUM_IFACES" -eq 0 ]; then
+        LOG ""
+        LOG "red" "=== NO NETWORK CONNECTED ==="
+        LOG ""
+        LOG "Bjorn requires a network connection to scan."
+        LOG "Please connect to a network first:"
+        LOG "  - WiFi client mode (wlan0cli)"
+        LOG "  - Ethernet/USB (br-lan)"
+        LOG ""
+        LOG "Press any button to exit..."
+        WAIT_FOR_INPUT >/dev/null 2>&1
+        exit 1
+    elif [ "$NUM_IFACES" -eq 1 ]; then
+        SELECTED_INTERFACE="${INTERFACES[0]}"
+        SELECTED_IP="${IPS[0]}"
+        LOG "green" "Network found: $SELECTED_INTERFACE ($SELECTED_IP)"
+    else
+        LOG ""
+        LOG "Multiple networks detected:"
+        LOG ""
+        for i in "${!INTERFACES[@]}"; do
+            NUM=$((i + 1))
+            LOG "  $NUM) ${INTERFACES[$i]} - ${IPS[$i]}"
+        done
+        LOG ""
+        LOG "Use UP/DOWN to select, GREEN to confirm"
+        LOG ""
+
+        SELECTION=0
+        while true; do
+            # Highlight current selection
+            for i in "${!INTERFACES[@]}"; do
+                if [ "$i" -eq "$SELECTION" ]; then
+                    LOG "green" "> ${INTERFACES[$i]} - ${IPS[$i]}"
+                else
+                    LOG "  ${INTERFACES[$i]} - ${IPS[$i]}"
+                fi
+            done
+
+            BUTTON=$(WAIT_FOR_INPUT 2>/dev/null)
+            case "$BUTTON" in
+                "UP")
+                    SELECTION=$((SELECTION - 1))
+                    if [ "$SELECTION" -lt 0 ]; then
+                        SELECTION=$((NUM_IFACES - 1))
+                    fi
+                    ;;
+                "DOWN")
+                    SELECTION=$((SELECTION + 1))
+                    if [ "$SELECTION" -ge "$NUM_IFACES" ]; then
+                        SELECTION=0
+                    fi
+                    ;;
+                "GREEN"|"A")
+                    SELECTED_INTERFACE="${INTERFACES[$SELECTION]}"
+                    SELECTED_IP="${IPS[$SELECTION]}"
+                    LOG ""
+                    LOG "green" "Selected: $SELECTED_INTERFACE ($SELECTED_IP)"
+                    break
+                    ;;
+                "RED"|"B")
+                    LOG "Exiting."
+                    exit 0
+                    ;;
+            esac
+        done
+    fi
+}
+
+#
 # Check and install Bjorn dependencies automatically
 #
 check_dependencies() {
@@ -156,6 +253,9 @@ fi
 # Check dependencies automatically
 check_dependencies
 
+# Check network connectivity
+check_network
+
 # Show menu
 LOG ""
 LOG "green" "=========================================="
@@ -166,6 +266,8 @@ LOG ""
 LOG "Tamagotchi-style hacking companion."
 LOG "Scans networks, finds vulnerabilities,"
 LOG "and collects credentials automatically."
+LOG ""
+LOG "Network: $SELECTED_INTERFACE ($SELECTED_IP)"
 LOG ""
 LOG "green" "  GREEN = Start Bjorn"
 LOG "red" "  RED   = Exit"
@@ -180,6 +282,8 @@ case "$BUTTON" in
         /etc/init.d/pineapplepager stop 2>/dev/null
         sleep 0.3
         cd "$PAYLOAD_DIR"
+        export BJORN_INTERFACE="$SELECTED_INTERFACE"
+        export BJORN_IP="$SELECTED_IP"
         python3 Bjorn.py
         /etc/init.d/pineapplepager start 2>/dev/null
         ;;

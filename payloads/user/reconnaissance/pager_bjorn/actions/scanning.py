@@ -216,7 +216,19 @@ class NetworkScanner:
             if scan_prefix is None:
                 scan_prefix = 24
 
-            # Get default route interface and gateway
+            # Check if interface was pre-selected via environment variable (from payload.sh)
+            env_interface = os.environ.get('BJORN_INTERFACE')
+            env_ip = os.environ.get('BJORN_IP')
+
+            if env_interface and env_ip:
+                # Use pre-selected interface from payload.sh
+                self.logger.info(f"Using pre-selected interface: {env_interface} ({env_ip})")
+                ip_addr = ipaddress.IPv4Address(env_ip)
+                network = ipaddress.IPv4Network(f"{ip_addr}/{scan_prefix}", strict=False)
+                self.logger.info(f"Network: {network} (prefix /{scan_prefix} from config)")
+                return network
+
+            # Auto-detect: Get default route interface and gateway
             result = subprocess.run(['ip', 'route', 'show', 'default'],
                                     capture_output=True, text=True, timeout=5)
             if not result.stdout.strip():
