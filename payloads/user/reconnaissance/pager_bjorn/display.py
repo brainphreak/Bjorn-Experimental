@@ -121,7 +121,9 @@ class Display:
                         self.shared_data.should_exit = True
                         self.shared_data.display_should_exit = True
                         self.shared_data.orchestrator_should_exit = True
-                        break
+                        # Cleanup and force exit
+                        self.cleanup()
+                        os._exit(0)  # Force terminate entire process
                     else:
                         logger.info("Exit cancelled")
             except Exception as e:
