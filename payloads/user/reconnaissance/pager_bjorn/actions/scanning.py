@@ -112,6 +112,18 @@ class NetworkScanner:
                 except Exception as e:
                     self.outer_instance.logger.error(f"Error in get_ip_from_csv: {e}")
 
+    def ping_host(self, ip):
+        """Simple ICMP ping check - returns True if host responds."""
+        try:
+            result = subprocess.run(
+                ['ping', '-c', '1', '-W', '1', ip],
+                capture_output=True,
+                timeout=3
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+
     def update_netkb(self, netkbfile, netkb_data, alive_macs):
         with self.lock:
             try:
@@ -138,6 +150,15 @@ class NetworkScanner:
                             }
                             for action in existing_action_columns:
                                 netkb_entries[mac][action] = row.get(action, "")
+
+                # Ping fallback: check existing hosts not detected by nmap
+                for mac, data in netkb_entries.items():
+                    if mac not in alive_macs and mac != "STANDALONE":
+                        for ip in data['IPs']:
+                            if self.ping_host(ip):
+                                self.logger.info(f"Ping fallback: {ip} ({mac}) is alive")
+                                alive_macs.add(mac)
+                                break
 
                 ip_to_mac = {}
 
