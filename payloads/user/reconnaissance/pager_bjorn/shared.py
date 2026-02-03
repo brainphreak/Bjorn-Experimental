@@ -81,9 +81,8 @@ class SharedData:
         self.statuspicdir = os.path.join(self.picdir, 'status')
         self.staticpicdir = os.path.join(self.picdir, 'static')
 
-        # Directory under input_dir
-        self.dictionarydir = os.path.join(self.input_dir, "dictionary")
-        os.makedirs(self.dictionarydir, exist_ok=True)
+        # Dictionary files are bundled in resources/dictionary/
+        self.dictionarydir = os.path.join(self.resourcesdir, "dictionary")
 
         # Backup directories (not used on Pager, but keep for compatibility)
         self.backupbasedir = os.path.join(self.datadir, 'backup')

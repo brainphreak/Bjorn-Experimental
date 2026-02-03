@@ -239,11 +239,8 @@ class Display:
                 total_zombies = sum([len(files) for r, d, files in os.walk(self.shared_data.zombiesdir)])
                 self.shared_data.zombiesnbr = total_zombies
 
-                total_attacks = sum([
-                    len(files) for r, d, files in os.walk(self.shared_data.actions_dir)
-                    if not r.endswith("__pycache__")
-                ]) - 2
-                self.shared_data.attacksnbr = max(0, total_attacks)
+                # attacksnbr is incremented by orchestrator when attacks are performed
+                # Don't count action module files here - that's not attacks performed
 
                 self.shared_data.update_stats()
                 self.shared_data.manual_mode = self.is_manual_mode()
