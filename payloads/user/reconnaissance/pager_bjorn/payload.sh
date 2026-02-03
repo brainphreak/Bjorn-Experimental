@@ -183,6 +183,11 @@ check_dependencies() {
         MISSING="$MISSING paramiko"
     fi
 
+    # Check for getmac (for network scanner)
+    if ! python3 -c "import getmac" 2>/dev/null; then
+        MISSING="$MISSING getmac"
+    fi
+
     if [ -n "$MISSING" ]; then
         LOG ""
         LOG "red" "Missing dependencies:$MISSING"
@@ -193,7 +198,7 @@ check_dependencies() {
         opkg install nmap python3-pip 2>&1 | while IFS= read -r line; do LOG "  $line"; done
         LOG ""
         LOG "Installing Python packages via pip..."
-        pip3 install python-nmap paramiko pysmb pymysql 2>&1 | while IFS= read -r line; do LOG "  $line"; done
+        pip3 install python-nmap paramiko pysmb pymysql getmac 2>&1 | while IFS= read -r line; do LOG "  $line"; done
         LOG ""
         LOG "green" "Dependencies installed!"
         sleep 1

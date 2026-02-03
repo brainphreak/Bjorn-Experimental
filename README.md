@@ -13,21 +13,22 @@ Bjorn is a Tamagotchi-style autonomous network reconnaissance companion. It auto
 
 ## Features
 
-| Feature | Status |
-|---------|--------|
-| Network Scanner | Ported |
-| Nmap Vuln Scanner | Ported |
-| FTP Brute Force | Ported |
-| SSH Brute Force | Ported |
-| Telnet Brute Force | Ported |
-| SMB Brute Force | Ported |
-| RDP Brute Force | Ported |
-| MySQL Brute Force | Ported |
-| File Exfiltration | Ported |
-| Portrait Display | Ported |
-| Button Controls | Ported |
-
-*Note: Features are ported from the original Bjorn project. Testing on actual hardware is ongoing.*
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Network Scanner | Ported | Uses getmac, nmap |
+| Nmap Vuln Scanner | Ported | Requires nmap |
+| FTP Brute Force | Ported | Uses built-in ftplib |
+| SSH Brute Force | Ported | Uses paramiko |
+| Telnet Brute Force | Ported | Uses built-in telnetlib |
+| SMB Brute Force | TODO | Needs `smbclient` |
+| RDP Brute Force | TODO | Needs `xfreerdp` (not available on Pager) |
+| MySQL Brute Force | Ported | Uses pymysql |
+| File Exfiltration (FTP) | Ported | |
+| File Exfiltration (SSH) | Ported | |
+| File Exfiltration (SMB) | TODO | Needs `smbclient` |
+| File Exfiltration (RDP) | TODO | Needs `xfreerdp` |
+| Portrait Display | Ported | |
+| Button Controls | Ported | |
 
 ## Requirements
 
