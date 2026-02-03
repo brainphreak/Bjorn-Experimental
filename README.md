@@ -15,18 +15,18 @@ Bjorn is a Tamagotchi-style autonomous network reconnaissance companion. It auto
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Network Scanner | Ported | Uses getmac, nmap |
-| Nmap Vuln Scanner | Ported | Requires nmap |
-| FTP Brute Force | Ported | Uses built-in ftplib |
-| SSH Brute Force | Ported | Uses paramiko |
-| Telnet Brute Force | Ported | Uses built-in telnetlib |
-| SMB Brute Force | TODO | Needs `smbclient` |
-| RDP Brute Force | TODO | Needs `xfreerdp` (not available on Pager) |
-| MySQL Brute Force | Ported | Uses pymysql |
+| Network Scanner | Ported | getmac (bundled), nmap (system) |
+| Nmap Vuln Scanner | Ported | nmap (system) |
+| FTP Brute Force | Ported | ftplib (built-in) |
+| SSH Brute Force | Ported | paramiko (bundled) |
+| Telnet Brute Force | Ported | telnetlib (built-in) |
+| SMB Brute Force | TODO | Needs `smbclient` binary |
+| RDP Brute Force | TODO | Needs `xfreerdp` binary |
+| MySQL Brute Force | Ported | pymysql (bundled) |
 | File Exfiltration (FTP) | Ported | |
-| File Exfiltration (SSH) | Ported | |
-| File Exfiltration (SMB) | TODO | Needs `smbclient` |
-| File Exfiltration (RDP) | TODO | Needs `xfreerdp` |
+| File Exfiltration (SSH) | Ported | paramiko (bundled) |
+| File Exfiltration (SMB) | TODO | Needs `smbclient` binary |
+| File Exfiltration (RDP) | TODO | Needs `xfreerdp` binary |
 | Portrait Display | Ported | |
 | Button Controls | Ported | |
 
@@ -41,14 +41,14 @@ Bjorn is a Tamagotchi-style autonomous network reconnaissance companion. It auto
 
 1. Copy the `payloads/` directory to your Pager's SD card:
    ```bash
-   scp -r payloads/ root@<pager-ip>:/mmc/root/
+   scp -r payloads/ root@<pager-ip>:/root/
    ```
 
 2. Launch from the Pager's payload menu: **Reconnaissance → Bjorn**
 
-3. Dependencies (nmap, paramiko, etc.) are **automatically installed** on first run
+3. Press **GREEN** to start Bjorn
 
-4. Press **GREEN** to start Bjorn
+All Python dependencies are bundled in `lib/` - no internet connection required.
 
 ## Usage
 
@@ -114,6 +114,15 @@ pager_bjorn/
 ├── shared.py          # Shared state & config
 ├── pagerctl.py        # Pager hardware interface
 ├── libpagerctl.so     # Native display library
+├── payload.sh         # Launcher script
+├── lib/               # Bundled Python packages
+│   ├── paramiko/      # SSH library
+│   ├── cryptography/  # Crypto (paramiko dep)
+│   ├── getmac/        # MAC address lookup
+│   ├── pymysql/       # MySQL client
+│   ├── nmap/          # python-nmap
+│   ├── smb/           # pysmb
+│   └── ...
 ├── actions/           # Attack modules
 │   ├── scanning.py    # Network scanner
 │   ├── ftp_connector.py
