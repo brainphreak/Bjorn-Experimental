@@ -13,6 +13,8 @@ __pycache__/
 *.so
 !payloads/user/reconnaissance/pager_bjorn/libpagerctl.so
 !payloads/user/reconnaissance/pager_bjorn/bin/*.so*
+!payloads/user/reconnaissance/pager_bjorn/lib/**/*.so
+!payloads/user/reconnaissance/pager_bjorn/lib/*.so*
 *.egg-info/
 .eggs/
 dist/
