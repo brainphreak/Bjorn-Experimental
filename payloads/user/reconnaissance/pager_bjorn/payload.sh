@@ -124,24 +124,33 @@ check_network() {
         LOG ""
         LOG "Multiple networks detected:"
         LOG ""
-        LOG "red" "RED   = ${INTERFACES[0]} (${IPS[0]})"
-        LOG "green" "GREEN = ${INTERFACES[1]} (${IPS[1]})"
-        if [ "$NUM_IFACES" -ge 3 ]; then
-            LOG "UP    = ${INTERFACES[2]} (${IPS[2]})"
+        LOG "LEFT  = ${INTERFACES[0]} (${IPS[0]})"
+        if [ "$NUM_IFACES" -ge 2 ]; then
+            LOG "UP    = ${INTERFACES[1]} (${IPS[1]})"
         fi
+        if [ "$NUM_IFACES" -ge 3 ]; then
+            LOG "RIGHT = ${INTERFACES[2]} (${IPS[2]})"
+        fi
+        LOG ""
+        LOG "red" "RED   = Exit"
         LOG ""
 
         BUTTON=$(WAIT_FOR_INPUT 2>/dev/null)
         case "$BUTTON" in
-            "RED"|"B")
+            "LEFT")
                 SELECTED_INTERFACE="${INTERFACES[0]}"
                 SELECTED_IP="${IPS[0]}"
                 ;;
-            "GREEN"|"A")
-                SELECTED_INTERFACE="${INTERFACES[1]}"
-                SELECTED_IP="${IPS[1]}"
-                ;;
             "UP")
+                if [ "$NUM_IFACES" -ge 2 ]; then
+                    SELECTED_INTERFACE="${INTERFACES[1]}"
+                    SELECTED_IP="${IPS[1]}"
+                else
+                    SELECTED_INTERFACE="${INTERFACES[0]}"
+                    SELECTED_IP="${IPS[0]}"
+                fi
+                ;;
+            "RIGHT")
                 if [ "$NUM_IFACES" -ge 3 ]; then
                     SELECTED_INTERFACE="${INTERFACES[2]}"
                     SELECTED_IP="${IPS[2]}"
@@ -149,6 +158,10 @@ check_network() {
                     SELECTED_INTERFACE="${INTERFACES[0]}"
                     SELECTED_IP="${IPS[0]}"
                 fi
+                ;;
+            "RED"|"B")
+                LOG "Exiting."
+                exit 0
                 ;;
             *)
                 SELECTED_INTERFACE="${INTERFACES[0]}"
@@ -161,36 +174,25 @@ check_network() {
 }
 
 #
-# Check and install Bjorn dependencies automatically
-# Python packages are bundled in lib/ directory
+# Check Bjorn dependencies
+# Python packages are bundled in lib/ directory, nmap is pre-installed on Pager
 #
 check_dependencies() {
     LOG ""
     LOG "Checking dependencies..."
 
-    # Add bundled lib to PYTHONPATH for import checks
-    export PYTHONPATH="$PAYLOAD_DIR/lib:$PYTHONPATH"
-
-    MISSING=""
-
-    # Check for nmap binary (only external dependency)
+    # Check for nmap binary (should be pre-installed)
     if ! command -v nmap >/dev/null 2>&1; then
-        MISSING="nmap"
+        LOG ""
+        LOG "red" "ERROR: nmap not found!"
+        LOG "nmap should be pre-installed on the Pager."
+        LOG ""
+        LOG "Press any button to exit..."
+        WAIT_FOR_INPUT >/dev/null 2>&1
+        exit 1
     fi
 
-    if [ -n "$MISSING" ]; then
-        LOG ""
-        LOG "red" "Missing: $MISSING"
-        LOG ""
-        LOG "Installing nmap..."
-        opkg update 2>&1 | while IFS= read -r line; do LOG "  $line"; done
-        opkg install nmap 2>&1 | while IFS= read -r line; do LOG "  $line"; done
-        LOG ""
-        LOG "green" "Dependencies installed!"
-        sleep 1
-    else
-        LOG "green" "All dependencies found!"
-    fi
+    LOG "green" "All dependencies found!"
 }
 
 # ============================================================
