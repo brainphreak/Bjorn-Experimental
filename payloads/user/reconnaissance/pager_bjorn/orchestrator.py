@@ -165,6 +165,7 @@ class Orchestrator:
         try:
             logger.info(f"Executing action {action.action_name} for {ip}:{action.port}")
             self.shared_data.bjornstatustext2 = ip
+            self.shared_data.attacksnbr += 1  # Increment attack counter
             result = action.execute(ip, str(action.port), row, action_key)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             if result == 'success':
