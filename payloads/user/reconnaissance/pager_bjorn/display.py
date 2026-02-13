@@ -23,6 +23,44 @@ from logger import Logger
 
 logger = Logger(name="display.py", level=logging.INFO)
 
+PAYLOAD_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def discover_launchers():
+    """Scan PAYLOAD_DIR for launch_*.sh scripts with valid # Requires: paths.
+    Returns list of (title, path) tuples. Skips self-launchers (launch_bjorn.sh)."""
+    launchers = []
+    pattern = os.path.join(PAYLOAD_DIR, 'launch_*.sh')
+    matches = sorted(glob.glob(pattern))
+    logger.info(f"discover_launchers: PAYLOAD_DIR={PAYLOAD_DIR} pattern={pattern} matches={matches}")
+    for path in matches:
+        basename = os.path.basename(path)
+        if basename == 'launch_bjorn.sh':
+            continue
+        title = None
+        requires = None
+        try:
+            with open(path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith('# Title:'):
+                        title = line[len('# Title:'):].strip()
+                    elif line.startswith('# Requires:'):
+                        requires = line[len('# Requires:'):].strip()
+                    if title and requires:
+                        break
+        except Exception as e:
+            logger.error(f"discover_launchers: error reading {path}: {e}")
+            continue
+        logger.info(f"discover_launchers: {basename} title={title} requires={requires} isdir={os.path.isdir(requires) if requires else 'N/A'}")
+        if not title:
+            continue
+        if requires and not os.path.isdir(requires):
+            continue
+        launchers.append((title, path))
+    logger.info(f"discover_launchers: returning {launchers}")
+    return launchers
+
 
 class Display:
     """Pager display - matches original Bjorn layout."""
@@ -147,7 +185,7 @@ class Display:
                 self.dim_screen()
 
     def handle_input_loop(self):
-        """Handle button input - Red button shows exit confirmation."""
+        """Handle button input - Red button shows pause menu."""
         logger.info("Input handler: Monitoring for button presses")
         while not self.shared_data.display_should_exit:
             try:
@@ -157,25 +195,34 @@ class Display:
                 # Any button press wakes the screen and resets activity timer
                 self.wake_screen()
 
-                # Red button (B) - show exit confirmation
+                # Red button (B) - show pause menu
                 if button & self.pager.BTN_B:
-                    logger.info("Red button pressed - showing exit confirmation")
-                    if self.show_exit_confirmation():
-                        logger.info("Exit confirmed - shutting down")
-                        self.shared_data.should_exit = True
-                        self.shared_data.display_should_exit = True
-                        self.shared_data.orchestrator_should_exit = True
-                        # Cleanup and force exit
-                        self.cleanup()
-                        os._exit(0)  # Force terminate entire process
-                    else:
-                        logger.info("Exit cancelled")
+                    logger.info("Red button pressed - showing pause menu")
+                    action = self.show_exit_confirmation()
+                    if action is None:
+                        logger.info("Back to scanning")
+                        continue
+                    logger.info(f"Menu action: exit code {action}")
+                    self.shared_data.should_exit = True
+                    self.shared_data.display_should_exit = True
+                    self.shared_data.orchestrator_should_exit = True
+                    if action == 42:
+                        # Write .next_payload for handoff
+                        data_dir = os.path.join(PAYLOAD_DIR, 'data')
+                        os.makedirs(data_dir, exist_ok=True)
+                        next_payload_path = os.path.join(data_dir, '.next_payload')
+                        with open(next_payload_path, 'w') as f:
+                            f.write(self._handoff_launcher_path)
+                        logger.info(f"Wrote .next_payload: {self._handoff_launcher_path}")
+                    self.cleanup()
+                    os._exit(action)
             except Exception as e:
                 logger.error(f"Error in input handler: {e}")
                 time.sleep(1.0)
 
     def show_exit_confirmation(self):
-        """Show pause menu with brightness control and exit option."""
+        """Show pause menu with brightness control and exit options.
+        Returns: None=back, 99=main menu, 42=launcher handoff, 0=exit bjorn."""
         # Pause display updates while dialog is showing
         self.dialog_showing = True
         time.sleep(0.2)  # Let current render finish
@@ -185,15 +232,33 @@ class Display:
         if current_brightness < 0:
             current_brightness = self.screen_brightness
 
-        # Menu selection: 0 = BACK (default), 1 = EXIT
+        # Build options list: BACK + Main Menu + launchers + Exit Bjorn
+        # Each option: (label, color, action)
+        green_color = self.pager.rgb(0, 150, 0)
+        yellow_color = self.pager.rgb(180, 150, 0)
+        blue_color = self.pager.rgb(50, 100, 220)
+        red_color = self.pager.rgb(200, 0, 0)
+
+        options = [
+            ("BACK", green_color, None),
+            ("Main Menu", yellow_color, 99),
+        ]
+
+        launchers = discover_launchers()
+        for title, path in launchers:
+            options.append((f"> {title}", blue_color, (42, path)))
+
+        options.append(("Exit Bjorn", red_color, 0))
+
+        num_options = len(options)
         selected = 0
 
         def draw_menu():
             self.pager.fill_rect(0, 0, self.width, self.height, self.WHITE)
 
             # Draw dialog box
-            box_y = int(self.height * 0.15)
-            box_h = int(self.height * 0.7)
+            box_y = int(self.height * 0.10)
+            box_h = int(self.height * 0.80)
             self.pager.fill_rect(10, box_y, self.width - 20, box_h, self.WHITE)
             self.pager.rect(10, box_y, self.width - 20, box_h, self.BLACK)
             self.pager.rect(12, box_y + 2, self.width - 24, box_h - 4, self.BLACK)
@@ -203,7 +268,7 @@ class Display:
             self.pager.draw_ttf_centered(title_y, "MENU", self.BLACK, self.font_viking, int(12 * self.sy))
 
             # Brightness section
-            bright_y = box_y + int(50 * self.sy)
+            bright_y = box_y + int(30 * self.sy)
             self.pager.draw_ttf_centered(bright_y, "BRIGHTNESS", self.BLACK, self.font_arial, int(9 * self.sy))
 
             # Brightness bar
@@ -224,29 +289,30 @@ class Display:
             pct_y = bar_y + bar_h + 5
             self.pager.draw_ttf_centered(pct_y, f"{current_brightness}%", self.BLACK, self.font_arial, int(10 * self.sy))
 
-            # Menu buttons
-            btn_y = box_y + box_h - int(70 * self.sy)
-            btn_w = 80
-            btn_h = 32
+            # Menu buttons - stack vertically
+            btn_w = 120
+            btn_h = 28
             btn_x = (self.width - btn_w) // 2
+            btn_gap = 8
+            font_size = int(8 * self.sy)
 
-            green_color = self.pager.rgb(0, 150, 0)
-            red_color = self.pager.rgb(200, 0, 0)
+            # Start buttons below the brightness percentage
+            first_btn_y = pct_y + int(18 * self.sy)
 
-            # BACK button (selected = 0)
-            if selected == 0:
-                # Draw selection highlight
-                self.pager.fill_rect(btn_x - 4, btn_y - 4, btn_w + 8, btn_h + 8, self.BLACK)
-            self.pager.fill_rect(btn_x, btn_y, btn_w, btn_h, green_color)
-            self.pager.draw_ttf(btn_x + 18, btn_y + 8, "BACK", self.WHITE, self.font_arial, int(9 * self.sy))
+            for i, (label, color, _action) in enumerate(options):
+                btn_y = first_btn_y + i * (btn_h + btn_gap)
 
-            # EXIT button (selected = 1)
-            exit_btn_y = btn_y + btn_h + 12
-            if selected == 1:
-                # Draw selection highlight
-                self.pager.fill_rect(btn_x - 4, exit_btn_y - 4, btn_w + 8, btn_h + 8, self.BLACK)
-            self.pager.fill_rect(btn_x, exit_btn_y, btn_w, btn_h, red_color)
-            self.pager.draw_ttf(btn_x + 22, exit_btn_y + 8, "EXIT", self.WHITE, self.font_arial, int(9 * self.sy))
+                if i == selected:
+                    # Draw selection highlight
+                    self.pager.fill_rect(btn_x - 4, btn_y - 4, btn_w + 8, btn_h + 8, self.BLACK)
+
+                self.pager.fill_rect(btn_x, btn_y, btn_w, btn_h, color)
+
+                # Center text in button
+                text_w = self.pager.ttf_width(label, self.font_arial, font_size)
+                text_x = btn_x + (btn_w - text_w) // 2
+                text_y = btn_y + (btn_h - font_size) // 2
+                self.pager.draw_ttf(text_x, text_y, label, self.WHITE, self.font_arial, font_size)
 
             self.pager.flip()
 
@@ -270,21 +336,26 @@ class Display:
                 draw_menu()
             elif button & self.pager.BTN_LEFT:
                 # Physical LEFT = Visual UP = Move selection up
-                selected = 0
+                selected = (selected - 1) % num_options
                 draw_menu()
             elif button & self.pager.BTN_RIGHT:
                 # Physical RIGHT = Visual DOWN = Move selection down
-                selected = 1
+                selected = (selected + 1) % num_options
                 draw_menu()
             elif button & self.pager.BTN_A:  # Green = confirm selection
                 self.dialog_showing = False
-                if selected == 0:
-                    return False  # BACK
+                action = options[selected][2]
+                if action is None:
+                    return None  # BACK
+                elif isinstance(action, tuple):
+                    # Launcher handoff: (42, path)
+                    self._handoff_launcher_path = action[1]
+                    return 42
                 else:
-                    return True   # EXIT
+                    return action  # 99 or 0
             elif button & self.pager.BTN_B:  # Red = always go back
                 self.dialog_showing = False
-                return False
+                return None
 
     def update_vuln_count(self):
         with self.semaphore:

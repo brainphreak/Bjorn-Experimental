@@ -144,6 +144,7 @@ class SharedData:
             "scan_vuln_interval": 900,     # 15 min vuln scans
             "clear_hosts_on_startup": False, # Only clear hosts via Clear Hosts button
             "failed_retry_delay": 600,
+            "max_failed_retries": 3,       # Give up after this many failures
             "success_retry_delay": 900,
 
             "__title_lists__": "List Settings",

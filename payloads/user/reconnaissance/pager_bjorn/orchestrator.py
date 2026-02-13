@@ -232,17 +232,39 @@ class Orchestrator:
                 except ValueError as ve:
                     logger.error(f"Error parsing last success time for {action.action_name}: {ve}")
 
+        # Skip permanently if all credentials were exhausted (no point retrying same list)
+        if 'no_creds' in action_status:
+            logger.info(f"Skipping action {action.action_name} for {ip}:{action.port} - credentials exhausted")
+            return False
+
+        # Check failed status: format is failed_{count}_{timestamp}
         last_failed_time_str = row.get(action_key, "")
         if 'failed' in last_failed_time_str:
             try:
-                last_failed_time = datetime.strptime(last_failed_time_str.split('_')[1] + "_" + last_failed_time_str.split('_')[2], "%Y%m%d_%H%M%S")
+                parts = last_failed_time_str.split('_')
+                # Parse count and timestamp from failed_{count}_{YYYYMMDD}_{HHMMSS}
+                fail_count = int(parts[1])
+                last_failed_time = datetime.strptime(parts[2] + "_" + parts[3], "%Y%m%d_%H%M%S")
+                max_retries = getattr(self.shared_data, 'max_failed_retries', 3)
+                if fail_count >= max_retries:
+                    logger.warning(f"Skipping action {action.action_name} for {ip}:{action.port} - max retries ({max_retries}) reached")
+                    return False
                 if datetime.now() < last_failed_time + timedelta(seconds=self.shared_data.failed_retry_delay):
                     retry_in_seconds = (last_failed_time + timedelta(seconds=self.shared_data.failed_retry_delay) - datetime.now()).seconds
                     formatted_retry_in = str(timedelta(seconds=retry_in_seconds))
-                    logger.warning(f"Skipping action {action.action_name} for {ip}:{action.port} due to failed retry delay, retry possible in: {formatted_retry_in}")
-                    return False  # Skip if the retry delay has not passed
-            except ValueError as ve:
-                logger.error(f"Error parsing last failed time for {action.action_name}: {ve}")
+                    logger.warning(f"Skipping action {action.action_name} for {ip}:{action.port} due to failed retry delay ({fail_count}/{max_retries}), retry possible in: {formatted_retry_in}")
+                    return False
+            except (ValueError, IndexError):
+                # Legacy format failed_{timestamp} — treat as first failure
+                try:
+                    last_failed_time = datetime.strptime(last_failed_time_str.split('_')[1] + "_" + last_failed_time_str.split('_')[2], "%Y%m%d_%H%M%S")
+                    if datetime.now() < last_failed_time + timedelta(seconds=self.shared_data.failed_retry_delay):
+                        retry_in_seconds = (last_failed_time + timedelta(seconds=self.shared_data.failed_retry_delay) - datetime.now()).seconds
+                        formatted_retry_in = str(timedelta(seconds=retry_in_seconds))
+                        logger.warning(f"Skipping action {action.action_name} for {ip}:{action.port} due to failed retry delay, retry possible in: {formatted_retry_in}")
+                        return False
+                except (ValueError, IndexError):
+                    pass
 
         try:
             logger.info(f"Executing action {action.action_name} for {ip}:{action.port}")
@@ -252,14 +274,31 @@ class Orchestrator:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             if result == 'success':
                 row[action_key] = f'success_{timestamp}'
+            elif result == 'no_creds_found':
+                row[action_key] = f'no_creds_{timestamp}'
             else:
-                row[action_key] = f'failed_{timestamp}'
+                # Increment failure count
+                prev_count = 0
+                prev_status = row.get(action_key, "")
+                if 'failed' in prev_status:
+                    try:
+                        prev_count = int(prev_status.split('_')[1])
+                    except (ValueError, IndexError):
+                        pass
+                row[action_key] = f'failed_{prev_count + 1}_{timestamp}'
             self.shared_data.write_data(current_data)
             return result == 'success'
         except Exception as e:
             logger.error(f"Action {action.action_name} failed: {e}")
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            row[action_key] = f'failed_{timestamp}'
+            prev_count = 0
+            prev_status = row.get(action_key, "")
+            if 'failed' in prev_status:
+                try:
+                    prev_count = int(prev_status.split('_')[1])
+                except (ValueError, IndexError):
+                    pass
+            row[action_key] = f'failed_{prev_count + 1}_{timestamp}'
             self.shared_data.write_data(current_data)
             return False
 
@@ -295,17 +334,37 @@ class Orchestrator:
                 except ValueError as ve:
                     logger.error(f"Error parsing last success time for {action.action_name}: {ve}")
 
+        # Skip permanently if all credentials were exhausted
+        if 'no_creds' in row.get(action_key, ""):
+            logger.info(f"Skipping standalone action {action.action_name} - credentials exhausted")
+            return False
+
+        # Check failed status: format is failed_{count}_{timestamp}
         last_failed_time_str = row.get(action_key, "")
         if 'failed' in last_failed_time_str:
             try:
-                last_failed_time = datetime.strptime(last_failed_time_str.split('_')[1] + "_" + last_failed_time_str.split('_')[2], "%Y%m%d_%H%M%S")
+                parts = last_failed_time_str.split('_')
+                fail_count = int(parts[1])
+                last_failed_time = datetime.strptime(parts[2] + "_" + parts[3], "%Y%m%d_%H%M%S")
+                max_retries = getattr(self.shared_data, 'max_failed_retries', 3)
+                if fail_count >= max_retries:
+                    logger.warning(f"Skipping standalone action {action.action_name} - max retries ({max_retries}) reached")
+                    return False
                 if datetime.now() < last_failed_time + timedelta(seconds=self.shared_data.failed_retry_delay):
                     retry_in_seconds = (last_failed_time + timedelta(seconds=self.shared_data.failed_retry_delay) - datetime.now()).seconds
                     formatted_retry_in = str(timedelta(seconds=retry_in_seconds))
-                    logger.warning(f"Skipping standalone action {action.action_name} due to failed retry delay, retry possible in: {formatted_retry_in}")
-                    return False  # Skip if the retry delay has not passed
-            except ValueError as ve:
-                logger.error(f"Error parsing last failed time for {action.action_name}: {ve}")
+                    logger.warning(f"Skipping standalone action {action.action_name} due to failed retry delay ({fail_count}/{max_retries}), retry possible in: {formatted_retry_in}")
+                    return False
+            except (ValueError, IndexError):
+                try:
+                    last_failed_time = datetime.strptime(last_failed_time_str.split('_')[1] + "_" + last_failed_time_str.split('_')[2], "%Y%m%d_%H%M%S")
+                    if datetime.now() < last_failed_time + timedelta(seconds=self.shared_data.failed_retry_delay):
+                        retry_in_seconds = (last_failed_time + timedelta(seconds=self.shared_data.failed_retry_delay) - datetime.now()).seconds
+                        formatted_retry_in = str(timedelta(seconds=retry_in_seconds))
+                        logger.warning(f"Skipping standalone action {action.action_name} due to failed retry delay, retry possible in: {formatted_retry_in}")
+                        return False
+                except (ValueError, IndexError):
+                    pass
 
         try:
             logger.info(f"Executing standalone action {action.action_name}")
@@ -314,15 +373,32 @@ class Orchestrator:
             if result == 'success':
                 row[action_key] = f'success_{timestamp}'
                 logger.info(f"Standalone action {action.action_name} executed successfully")
+            elif result == 'no_creds_found':
+                row[action_key] = f'no_creds_{timestamp}'
+                logger.info(f"Standalone action {action.action_name} - no credentials found")
             else:
-                row[action_key] = f'failed_{timestamp}'
-                logger.error(f"Standalone action {action.action_name} failed")
+                prev_count = 0
+                prev_status = row.get(action_key, "")
+                if 'failed' in prev_status:
+                    try:
+                        prev_count = int(prev_status.split('_')[1])
+                    except (ValueError, IndexError):
+                        pass
+                row[action_key] = f'failed_{prev_count + 1}_{timestamp}'
+                logger.error(f"Standalone action {action.action_name} failed ({prev_count + 1}/{getattr(self.shared_data, 'max_failed_retries', 3)})")
             self.shared_data.write_data(current_data)
             return result == 'success'
         except Exception as e:
             logger.error(f"Standalone action {action.action_name} failed: {e}")
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            row[action_key] = f'failed_{timestamp}'
+            prev_count = 0
+            prev_status = row.get(action_key, "")
+            if 'failed' in prev_status:
+                try:
+                    prev_count = int(prev_status.split('_')[1])
+                except (ValueError, IndexError):
+                    pass
+            row[action_key] = f'failed_{prev_count + 1}_{timestamp}'
             self.shared_data.write_data(current_data)
             return False
 
@@ -374,14 +450,29 @@ class Orchestrator:
                                                     logger.warning(f"Skipping vulnerability scan for {ip} due to success retry delay, retry possible in: {formatted_retry_in}")
                                                     continue
 
-                                            # Check failed retry delay
+                                            # Check failed retry delay (format: failed_{count}_{timestamp})
                                             if 'failed' in scan_status:
-                                                last_failed_time = datetime.strptime(scan_status.split('_')[1] + "_" + scan_status.split('_')[2], "%Y%m%d_%H%M%S")
-                                                if datetime.now() < last_failed_time + timedelta(seconds=self.shared_data.failed_retry_delay):
-                                                    retry_in_seconds = (last_failed_time + timedelta(seconds=self.shared_data.failed_retry_delay) - datetime.now()).seconds
-                                                    formatted_retry_in = str(timedelta(seconds=retry_in_seconds))
-                                                    logger.warning(f"Skipping vulnerability scan for {ip} due to failed retry delay, retry possible in: {formatted_retry_in}")
-                                                    continue
+                                                try:
+                                                    parts = scan_status.split('_')
+                                                    fail_count = int(parts[1])
+                                                    last_failed_time = datetime.strptime(parts[2] + "_" + parts[3], "%Y%m%d_%H%M%S")
+                                                    max_retries = getattr(self.shared_data, 'max_failed_retries', 3)
+                                                    if fail_count >= max_retries:
+                                                        logger.warning(f"Skipping vulnerability scan for {ip} - max retries ({max_retries}) reached")
+                                                        continue
+                                                    if datetime.now() < last_failed_time + timedelta(seconds=self.shared_data.failed_retry_delay):
+                                                        retry_in_seconds = (last_failed_time + timedelta(seconds=self.shared_data.failed_retry_delay) - datetime.now()).seconds
+                                                        formatted_retry_in = str(timedelta(seconds=retry_in_seconds))
+                                                        logger.warning(f"Skipping vulnerability scan for {ip} due to failed retry delay ({fail_count}/{max_retries}), retry possible in: {formatted_retry_in}")
+                                                        continue
+                                                except (ValueError, IndexError):
+                                                    # Legacy format — just check time
+                                                    try:
+                                                        last_failed_time = datetime.strptime(scan_status.split('_')[1] + "_" + scan_status.split('_')[2], "%Y%m%d_%H%M%S")
+                                                        if datetime.now() < last_failed_time + timedelta(seconds=self.shared_data.failed_retry_delay):
+                                                            continue
+                                                    except (ValueError, IndexError):
+                                                        pass
 
                                             with self.semaphore:
                                                 result = self.nmap_vuln_scanner.execute(ip, row, "NmapVulnScanner")
@@ -389,7 +480,14 @@ class Orchestrator:
                                                 if result == 'success':
                                                     row["NmapVulnScanner"] = f'success_{timestamp}'
                                                 else:
-                                                    row["NmapVulnScanner"] = f'failed_{timestamp}'
+                                                    prev_count = 0
+                                                    prev_status = row.get("NmapVulnScanner", "")
+                                                    if 'failed' in prev_status:
+                                                        try:
+                                                            prev_count = int(prev_status.split('_')[1])
+                                                        except (ValueError, IndexError):
+                                                            pass
+                                                    row["NmapVulnScanner"] = f'failed_{prev_count + 1}_{timestamp}'
                                                 self.shared_data.write_data(current_data)
                                     self.last_vuln_scan_time = current_time
                                 except Exception as e:

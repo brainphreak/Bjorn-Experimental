@@ -171,10 +171,15 @@ if __name__ == "__main__":
         bjorn_thread = threading.Thread(target=bjorn.run)
         bjorn_thread.start()
 
-        # Start web server
-        logger.info("Starting the web server...")
-        shared_data.webapp_should_exit = False
-        web_thread.start()
+        # Start web server (conditional on BJORN_WEB_UI env var)
+        web_ui_setting = os.environ.get('BJORN_WEB_UI', 'on').lower()
+        if web_ui_setting != 'off':
+            logger.info("Starting the web server...")
+            shared_data.webapp_should_exit = False
+            web_thread.start()
+        else:
+            logger.info("Web server disabled by menu setting")
+            web_thread = None
 
         signal.signal(signal.SIGINT, lambda sig, frame: handle_exit(sig, frame, display_thread, bjorn_thread, web_thread))
         signal.signal(signal.SIGTERM, lambda sig, frame: handle_exit(sig, frame, display_thread, bjorn_thread, web_thread))

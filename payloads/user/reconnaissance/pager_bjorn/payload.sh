@@ -1,170 +1,139 @@
 #!/bin/bash
-# Title: Bjorn
-# Description: Autonomous network reconnaissance companion (Tamagotchi-style)
-# Author: infinition (ported by brAinphreAk)
+# Title: PagerBjorn
+# Description: Autonomous network reconnaissance companion for WiFi Pineapple Pager - Network scanning, brute force, and data exfiltration with Viking personality
+# Author: brAinphreAk
 # Version: 1.0
 # Category: Reconnaissance
+# Library: libpagerctl.so (pagerctl)
 
+# Payload directory (standard Pager installation path)
 PAYLOAD_DIR="/root/payloads/user/reconnaissance/pager_bjorn"
+DATA_DIR="$PAYLOAD_DIR/data"
+
+cd "$PAYLOAD_DIR" || {
+    LOG "red" "ERROR: $PAYLOAD_DIR not found"
+    exit 1
+}
 
 #
-# Setup paths for Python and shared library
-# Python packages are bundled in lib/ directory
+# Find and setup pagerctl dependencies (libpagerctl.so + pagerctl.py)
+# Check bundled locations first, then PAGERCTL utilities dir
+#
+PAGERCTL_FOUND=false
+PAGERCTL_SEARCH_PATHS=(
+    "$PAYLOAD_DIR/lib"
+    "$PAYLOAD_DIR"
+    "/mmc/root/payloads/user/utilities/PAGERCTL"
+)
+
+for dir in "${PAGERCTL_SEARCH_PATHS[@]}"; do
+    if [ -f "$dir/libpagerctl.so" ] && [ -f "$dir/pagerctl.py" ]; then
+        PAGERCTL_DIR="$dir"
+        PAGERCTL_FOUND=true
+        break
+    fi
+done
+
+if [ "$PAGERCTL_FOUND" = false ]; then
+    LOG ""
+    LOG "red" "=== MISSING DEPENDENCY ==="
+    LOG ""
+    LOG "red" "libpagerctl.so and pagerctl.py not found!"
+    LOG ""
+    LOG "Searched:"
+    for dir in "${PAGERCTL_SEARCH_PATHS[@]}"; do
+        LOG "  $dir"
+    done
+    LOG ""
+    LOG "Install PAGERCTL payload or copy files to:"
+    LOG "  $PAYLOAD_DIR/lib/"
+    LOG ""
+    LOG "Press any button to exit..."
+    WAIT_FOR_INPUT >/dev/null 2>&1
+    exit 1
+fi
+
+# If pagerctl files aren't in our lib dir, copy them there
+if [ "$PAGERCTL_DIR" != "$PAYLOAD_DIR/lib" ]; then
+    mkdir -p "$PAYLOAD_DIR/lib" 2>/dev/null
+    cp "$PAGERCTL_DIR/libpagerctl.so" "$PAYLOAD_DIR/lib/" 2>/dev/null
+    cp "$PAGERCTL_DIR/pagerctl.py" "$PAYLOAD_DIR/lib/" 2>/dev/null
+    LOG "green" "Copied pagerctl from $PAGERCTL_DIR"
+fi
+
+#
+# Setup local paths for bundled binaries and libraries
+# Uses libpagerctl.so for display/input handling
 # MMC paths needed when python3 installed with opkg -d mmc
 #
-export PATH="/mmc/usr/bin:$PATH"
+export PATH="/mmc/usr/bin:$PAYLOAD_DIR/bin:$PATH"
 export PYTHONPATH="$PAYLOAD_DIR/lib:$PAYLOAD_DIR:$PYTHONPATH"
-export LD_LIBRARY_PATH="/mmc/usr/lib:$PAYLOAD_DIR/lib:$PAYLOAD_DIR:$LD_LIBRARY_PATH"
+export LD_LIBRARY_PATH="/mmc/usr/lib:$PAYLOAD_DIR/lib:$LD_LIBRARY_PATH"
 export CRYPTOGRAPHY_OPENSSL_NO_LEGACY=1
 
 #
-# Check for Python3 + required modules
+# Check for Python3 and python3-ctypes - required system dependencies
 #
-check_python() {
-    NEED_PYTHON=false
-    NEED_CTYPES=false
+NEED_PYTHON=false
+NEED_CTYPES=false
 
-    if ! command -v python3 >/dev/null 2>&1; then
-        NEED_PYTHON=true
-        NEED_CTYPES=true
-    elif ! python3 -c "import ctypes" 2>/dev/null; then
-        NEED_CTYPES=true
-    fi
+if ! command -v python3 >/dev/null 2>&1; then
+    NEED_PYTHON=true
+    NEED_CTYPES=true
+elif ! python3 -c "import ctypes" 2>/dev/null; then
+    NEED_CTYPES=true
+fi
 
-    if [ "$NEED_PYTHON" = true ] || [ "$NEED_CTYPES" = true ]; then
-        LOG ""
-        LOG "red" "=== PYTHON3 REQUIRED ==="
-        LOG ""
-        if [ "$NEED_PYTHON" = true ]; then
-            LOG "Python3 is not installed."
-        else
-            LOG "Python3-ctypes is not installed."
-        fi
-        LOG ""
-        LOG "Bjorn requires Python3 + ctypes for pagerctl."
-        LOG ""
-        LOG "green" "GREEN = Install Python3 (requires internet)"
-        LOG "red" "RED   = Exit"
-        LOG ""
-
-        while true; do
-            BUTTON=$(WAIT_FOR_INPUT 2>/dev/null)
-            case "$BUTTON" in
-                "GREEN"|"A")
-                    LOG ""
-                    LOG "Updating package lists..."
-                    opkg update 2>&1 | while IFS= read -r line; do LOG "  $line"; done
-                    LOG ""
-                    LOG "Installing Python3 + ctypes to MMC..."
-                    opkg -d mmc install python3 python3-ctypes 2>&1 | while IFS= read -r line; do LOG "  $line"; done
-                    LOG ""
-                    if command -v python3 >/dev/null 2>&1 && python3 -c "import ctypes" 2>/dev/null; then
-                        LOG "green" "Python3 installed successfully!"
-                        sleep 1
-                        return 0
-                    else
-                        LOG "red" "Failed to install Python3"
-                        LOG "Check internet connection."
-                        sleep 2
-                        return 1
-                    fi
-                    ;;
-                "RED"|"B")
-                    LOG "Exiting."
-                    exit 0
-                    ;;
-            esac
-        done
-    fi
-    return 0
-}
-
-#
-# Check network connectivity and select interface
-#
-SELECTED_INTERFACE=""
-SELECTED_IP=""
-
-check_network() {
+if [ "$NEED_PYTHON" = true ] || [ "$NEED_CTYPES" = true ]; then
     LOG ""
-    LOG "Checking network connectivity..."
-
-    # Get interfaces with IP addresses (exclude loopback)
-    INTERFACES=()
-    IPS=()
-
-    while IFS= read -r line; do
-        if [[ "$line" =~ ^[0-9]+:\ ([^:]+): ]]; then
-            CURRENT_IFACE="${BASH_REMATCH[1]}"
-        elif [[ "$line" =~ inet\ ([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+) ]]; then
-            IP="${BASH_REMATCH[1]}"
-            if [[ "$IP" != "127.0.0.1" && -n "$CURRENT_IFACE" ]]; then
-                INTERFACES+=("$CURRENT_IFACE")
-                IPS+=("$IP")
-            fi
-        fi
-    done < <(ip addr 2>/dev/null)
-
-    NUM_IFACES=${#INTERFACES[@]}
-
-    if [ "$NUM_IFACES" -eq 0 ]; then
-        LOG ""
-        LOG "red" "=== NO NETWORK CONNECTED ==="
-        LOG ""
-        LOG "Bjorn requires a network connection to scan."
-        LOG "Please connect to a network first:"
-        LOG "  - WiFi client mode (wlan0cli)"
-        LOG "  - Ethernet/USB (br-lan)"
-        LOG ""
-        LOG "Press any button to exit..."
-        WAIT_FOR_INPUT >/dev/null 2>&1
-        exit 1
-    elif [ "$NUM_IFACES" -eq 1 ]; then
-        SELECTED_INTERFACE="${INTERFACES[0]}"
-        SELECTED_IP="${IPS[0]}"
-        LOG "green" "Network found: $SELECTED_INTERFACE ($SELECTED_IP)"
+    LOG "red" "=== MISSING REQUIREMENT ==="
+    LOG ""
+    if [ "$NEED_PYTHON" = true ]; then
+        LOG "Python3 is required to run PagerBjorn."
     else
-        LOG ""
-        LOG "Multiple networks detected:"
-        LOG ""
-        LOG "red" "RED   = ${INTERFACES[0]} (${IPS[0]})"
-        LOG "green" "GREEN = ${INTERFACES[1]} (${IPS[1]})"
-        if [ "$NUM_IFACES" -ge 3 ]; then
-            LOG "UP    = ${INTERFACES[2]} (${IPS[2]})"
-        fi
-        LOG ""
+        LOG "Python3-ctypes is required to run PagerBjorn."
+    fi
+    LOG "All other dependencies are bundled."
+    LOG ""
+    LOG "green" "GREEN = Install dependencies (requires internet)"
+    LOG "red" "RED   = Exit"
+    LOG ""
 
+    while true; do
         BUTTON=$(WAIT_FOR_INPUT 2>/dev/null)
         case "$BUTTON" in
-            "RED"|"B")
-                SELECTED_INTERFACE="${INTERFACES[0]}"
-                SELECTED_IP="${IPS[0]}"
-                ;;
             "GREEN"|"A")
-                SELECTED_INTERFACE="${INTERFACES[1]}"
-                SELECTED_IP="${IPS[1]}"
-                ;;
-            "UP")
-                if [ "$NUM_IFACES" -ge 3 ]; then
-                    SELECTED_INTERFACE="${INTERFACES[2]}"
-                    SELECTED_IP="${IPS[2]}"
+                LOG ""
+                LOG "Updating package lists..."
+                opkg update 2>&1 | while IFS= read -r line; do LOG "  $line"; done
+                LOG ""
+                LOG "Installing Python3 + ctypes to MMC..."
+                opkg -d mmc install python3 python3-ctypes 2>&1 | while IFS= read -r line; do LOG "  $line"; done
+                LOG ""
+                # Verify installation succeeded
+                if command -v python3 >/dev/null 2>&1 && python3 -c "import ctypes" 2>/dev/null; then
+                    LOG "green" "Python3 installed successfully!"
+                    sleep 1
                 else
-                    SELECTED_INTERFACE="${INTERFACES[0]}"
-                    SELECTED_IP="${IPS[0]}"
+                    LOG "red" "Failed to install Python3"
+                    LOG "red" "Check internet connection and try again."
+                    LOG ""
+                    LOG "Press any button to exit..."
+                    WAIT_FOR_INPUT >/dev/null 2>&1
+                    exit 1
                 fi
+                break
                 ;;
-            *)
-                SELECTED_INTERFACE="${INTERFACES[0]}"
-                SELECTED_IP="${IPS[0]}"
+            "RED"|"B")
+                LOG "Exiting."
+                exit 0
                 ;;
         esac
-        LOG ""
-        LOG "green" "Selected: $SELECTED_INTERFACE ($SELECTED_IP)"
-    fi
-}
+    done
+fi
 
 #
-# Check Bjorn dependencies
+# Check PagerBjorn dependencies
 # Python packages are bundled in lib/ directory, nmap is pre-installed on Pager
 #
 check_dependencies() {
@@ -203,179 +172,93 @@ trap cleanup EXIT
 # MAIN
 # ============================================================
 
-# Check Python first (required)
-check_python || exit 1
+# Check dependencies automatically
+check_dependencies
 
-# Check if libpagerctl.so exists
-if [ ! -f "$PAYLOAD_DIR/libpagerctl.so" ]; then
+# Check network connectivity (at least one interface with IP)
+HAS_NETWORK=false
+while IFS= read -r line; do
+    if [[ "$line" =~ inet\ ([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+) ]]; then
+        IP="${BASH_REMATCH[1]}"
+        if [[ "$IP" != "127.0.0.1" ]]; then
+            HAS_NETWORK=true
+            break
+        fi
+    fi
+done < <(ip addr 2>/dev/null)
+
+if [ "$HAS_NETWORK" = false ]; then
     LOG ""
-    LOG "red" "ERROR: libpagerctl.so not found!"
+    LOG "red" "=== NO NETWORK CONNECTED ==="
     LOG ""
-    LOG "Build and deploy from your computer:"
-    LOG "  cd pagerctl && make remote-build"
-    LOG "  Then copy libpagerctl.so to pager_bjorn/"
+    LOG "PagerBjorn requires a network connection to scan."
+    LOG "Please connect to a network first:"
+    LOG "  - WiFi client mode (wlan0cli)"
+    LOG "  - Ethernet/USB (br-lan)"
     LOG ""
     LOG "Press any button to exit..."
     WAIT_FOR_INPUT >/dev/null 2>&1
     exit 1
 fi
 
-# Check dependencies automatically
-check_dependencies
-
-# Check network connectivity
-check_network
-
-# Loot directory paths
-LOOT_DIR="/mmc/root/loot/bjorn"
-LOGS_DIR="$LOOT_DIR/logs"
-CREDS_DIR="$LOOT_DIR/output/crackedpwd"
-STOLEN_DIR="$LOOT_DIR/output/data_stolen"
-
-# Clear functions
-clear_logs() {
-    LOG ""
-    LOG "Clearing logs..."
-    rm -rf "$LOGS_DIR"/* 2>/dev/null
-    LOG "green" "Logs cleared!"
-    sleep 1
-}
-
-clear_credentials() {
-    LOG ""
-    LOG "Clearing credentials..."
-    rm -f "$CREDS_DIR"/*.csv 2>/dev/null
-    LOG "green" "Credentials cleared!"
-    sleep 1
-}
-
-clear_stolen() {
-    LOG ""
-    LOG "Clearing stolen data..."
-    rm -rf "$STOLEN_DIR"/* 2>/dev/null
-    LOG "green" "Stolen data cleared!"
-    sleep 1
-}
-
-clear_all() {
-    LOG ""
-    LOG "Clearing all data..."
-    rm -rf "$LOGS_DIR"/* 2>/dev/null
-    rm -f "$CREDS_DIR"/*.csv 2>/dev/null
-    rm -rf "$STOLEN_DIR"/* 2>/dev/null
-    rm -f "$LOOT_DIR/netkb.csv" 2>/dev/null
-    rm -f "$LOOT_DIR/livestatus.csv" 2>/dev/null
-    rm -rf "$LOOT_DIR/output/scan_results"/* 2>/dev/null
-    rm -rf "$LOOT_DIR/output/vulnerabilities"/* 2>/dev/null
-    LOG "green" "All data cleared!"
-    sleep 1
-}
-
-show_menu() {
-    LOG ""
-    LOG "green" "=========================================="
-    LOG "green" "              BJORN"
-    LOG "green" "   Autonomous Network Reconnaissance"
-    LOG "green" "=========================================="
-    LOG ""
-    LOG "Tamagotchi-style hacking companion."
-    LOG "Scans networks, finds vulnerabilities,"
-    LOG "and collects credentials automatically."
-    LOG ""
-    LOG "Network: $SELECTED_INTERFACE ($SELECTED_IP)"
-    LOG "Web UI:  http://$SELECTED_IP:8000"
-    LOG ""
-    LOG "green" "  GREEN = Start Bjorn"
-    LOG "red" "  RED   = Exit"
-    LOG ""
-    LOG "  UP    = Clear Logs"
-    LOG "  LEFT  = Clear Stolen Data"
-    LOG "  RIGHT = Clear Credentials"
-    LOG "  DOWN  = Clear All"
-    LOG ""
-}
-
-# Show menu and handle input
-show_menu
+# Show info/splash screen
+LOG ""
+LOG "green" "Bjorn for WiFi Pineapple Pager"
+LOG "cyan" "ported by *brAinphreAk* (www.brAinphreAk.net)"
+LOG ""
+LOG "yellow" "Features:"
+LOG "cyan" "  - Automated network reconnaissance"
+LOG "cyan" "  - Port scanning with nmap"
+LOG "cyan" "  - SSH/SMB/FTP/Telnet/RDP/SQL brute force"
+LOG "cyan" "  - File stealing and data exfiltration"
+LOG "cyan" "  - Vulnerability scanning"
+LOG "cyan" "  - Web UI for monitoring"
+LOG ""
+LOG "green" "GREEN = Start"
+LOG "red" "RED = Exit"
+LOG ""
 
 while true; do
     BUTTON=$(WAIT_FOR_INPUT 2>/dev/null)
     case "$BUTTON" in
-        "UP")
-            clear_logs
-            show_menu
-            ;;
-        "DOWN")
-            clear_all
-            show_menu
-            ;;
-        "LEFT")
-            clear_stolen
-            show_menu
-            ;;
-        "RIGHT")
-            clear_credentials
-            show_menu
-            ;;
-        "RED"|"B")
-            LOG ""
-            LOG "Exiting."
-            exit 0
-            ;;
         "GREEN"|"A")
             break
+            ;;
+        "RED"|"B")
+            LOG "Exiting."
+            exit 0
             ;;
     esac
 done
 
-# Start Bjorn (GREEN was pressed)
-LOG ""
-SPINNER_ID=$(START_SPINNER "Starting Bjorn...")
+# Stop pager service and launch graphical menu
 /etc/init.d/pineapplepager stop 2>/dev/null
 sleep 0.3
-STOP_SPINNER "$SPINNER_ID" 2>/dev/null
 
-# Get Pager's IP for web access (use br-lan IP which is accessible)
-PAGER_IP=$(ip -4 addr show br-lan 2>/dev/null | grep -oP 'inet \K[\d.]+' | head -1)
-if [ -z "$PAGER_IP" ]; then
-    # Fallback to any available IP
-    PAGER_IP=$(ip -4 addr 2>/dev/null | grep -oP 'inet \K[\d.]+' | grep -v '127.0.0.1' | head -1)
-fi
+# Create data directory
+mkdir -p "$DATA_DIR" 2>/dev/null
 
-LOG ""
-LOG "green" "=========================================="
-LOG "green" "           BJORN STARTED"
-LOG "green" "=========================================="
-LOG ""
-LOG "Scanning network: $SELECTED_INTERFACE"
-LOG ""
-if [ -n "$PAGER_IP" ]; then
-    LOG "green" "Web UI: http://$PAGER_IP:8000"
-fi
-LOG ""
-LOG "Press RED to stop Bjorn"
-LOG ""
+# Payload loop — PagerBjorn can hand off to other apps via exit code 42
+# Python writes the target launch script path to data/.next_payload
+NEXT_PAYLOAD_FILE="$DATA_DIR/.next_payload"
 
-cd "$PAYLOAD_DIR"
-export BJORN_INTERFACE="$SELECTED_INTERFACE"
-export BJORN_IP="$SELECTED_IP"
-python3 Bjorn.py &
-BJORN_PID=$!
+while true; do
+    cd "$PAYLOAD_DIR"
+    python3 bjorn_menu.py
+    EXIT_CODE=$?
 
-# Wait for button press to stop
-while kill -0 $BJORN_PID 2>/dev/null; do
-    BUTTON=$(WAIT_FOR_INPUT -t 1 2>/dev/null)
-    if [ "$BUTTON" = "RED" ] || [ "$BUTTON" = "B" ]; then
-        LOG ""
-        SPINNER_ID=$(START_SPINNER "Stopping Bjorn...")
-        kill $BJORN_PID 2>/dev/null
-        wait $BJORN_PID 2>/dev/null
-        STOP_SPINNER "$SPINNER_ID" 2>/dev/null
-        LOG "green" "Bjorn stopped."
-        break
+    # Exit code 42 = hand off to another payload
+    if [ "$EXIT_CODE" -eq 42 ] && [ -f "$NEXT_PAYLOAD_FILE" ]; then
+        NEXT_SCRIPT=$(cat "$NEXT_PAYLOAD_FILE")
+        rm -f "$NEXT_PAYLOAD_FILE"
+        if [ -f "$NEXT_SCRIPT" ]; then
+            bash "$NEXT_SCRIPT"
+            # Only loop back to PagerBjorn if launched app exits 42
+            [ $? -eq 42 ] && continue
+        fi
     fi
-done
 
-/etc/init.d/pineapplepager start 2>/dev/null
+    break
+done
 
 exit 0
