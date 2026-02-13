@@ -279,7 +279,7 @@ class SharedData:
         self.bjornstatustext = "IDLE"
         self.bjornstatustext2 = "Awakening..."
 
-        # Scale factors for positioning (relative to original 122x250 e-ink)
+        # Scale factors for positioning (relative to original 122x250 display)
         self.scale_factor_x = self.width / 122
         self.scale_factor_y = self.height / 250
 

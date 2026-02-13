@@ -1,6 +1,6 @@
 #display.py
 # Description:
-# Pager display module for Bjorn - matches original Bjorn e-ink layout.
+# Pager LCD display module for Bjorn - matches original Bjorn layout.
 # Portrait orientation (222x480) scaled from original (122x250).
 
 import threading

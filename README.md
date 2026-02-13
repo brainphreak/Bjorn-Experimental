@@ -44,7 +44,7 @@ Bjorn is a Tamagotchi-style autonomous network reconnaissance companion. It auto
 
 ## Requirements
 
-- WiFi Pineapple Pager with firmware 1.x+
+- WiFi Pineapple Pager (tested on firmware 1.0.7)
 - **Network connection** - Pager must be connected to a network to scan (WiFi client mode or Ethernet/USB)
 - **Internet connection** (first run only) - Required to install Python3 and nmap via opkg
 - All Python dependencies are bundled in `lib/` - only system packages need internet
@@ -59,8 +59,6 @@ Bjorn is a Tamagotchi-style autonomous network reconnaissance companion. It auto
 2. Launch from the Pager's payload menu: **Reconnaissance > Bjorn**
 
 3. Press **GREEN** to start Bjorn
-
-All Python dependencies are bundled in `lib/` - no internet connection required.
 
 ## Usage
 
@@ -270,60 +268,33 @@ pager_bjorn/
     └── images/        # Viking animations
 ```
 
----
+## Clearing Data
 
-## Test Targets - Vulnerable Test Appliance
+To start fresh, delete the contents of:
+- `/mmc/root/loot/bjorn/output/crackedpwd/*.csv`
+- `/mmc/root/loot/bjorn/output/data_stolen/*`
+- `/mmc/root/loot/bjorn/output/scan_results/*`
+- `/mmc/root/loot/bjorn/logs/*`
+- `/mmc/root/loot/bjorn/archives/*`
+- `/mmc/root/loot/bjorn/netkb.csv`
+- `/mmc/root/loot/bjorn/livestatus.csv`
 
-The `test_targets/` directory contains a **deliberately vulnerable Docker environment** designed to test the effectiveness of Bjorn's attack modules. It provides a safe, isolated set of target services with weak credentials.
+Or use the web interface's "Clear Files" button.
 
-**Important:** This environment runs on your computer (not on the Pager). The Pager runs Bjorn, which scans the network and attacks these vulnerable containers.
+## Logging
 
-### What This Tests
+Logs are stored in `/mmc/root/loot/bjorn/logs/` with one file per module. Default log level is INFO. To enable debug logging, edit the `level=logging.INFO` to `level=logging.DEBUG` in the respective Python files.
 
-- Network scanning and host discovery
-- Service enumeration (SSH, FTP, SMB, Telnet, RDP, MySQL, HTTP)
-- Credential brute-forcing with dictionary attacks
-- File exfiltration from compromised services
-- Database data theft from MySQL
-- Anonymous/guest access detection
-
-### Quick Start
-
+View combined logs via the web interface or:
 ```bash
-cd test_targets
-
-# Start all services
-docker-compose up -d
-
-# Check services are running
-docker-compose ps
-
-# Stop all services
-docker-compose down
+tail -f /mmc/root/loot/bjorn/logs/*.log
 ```
 
-### Test Services & Credentials
+---
 
-| Service | Port | IP Address | Credentials | Notes |
-|---------|------|------------|-------------|-------|
-| SSH | 22 | 172.16.52.10 | admin:admin, test:test, root:root | Minimal Alpine container |
-| FTP | 21 | 172.16.52.11 | admin:admin | |
-| SMB | 445 | 172.16.52.12 | public: anonymous, private: admin:admin | |
-| MySQL | 3306 | 172.16.52.13 | root:root, admin:admin | |
-| Telnet | 23 | 172.16.52.14 | admin:admin, test:test, root:root | Minimal Alpine container |
-| HTTP | 80, 8080 | 172.16.52.15 | N/A | |
-| RDP | 3389 | 172.16.52.16 | admin:admin, root:root | NLA mock server |
+## Test Targets
 
-All services run on **172.16.52.0/24** - the same network as the Pager (172.16.52.1).
-
-The SSH and Telnet containers include test files for file stealing validation (`.env`, `.flag`, `.bashrc`, etc.).
-
-### Expected Results
-
-After running Bjorn against test targets, you should see:
-- **netkb.csv** - All 7 targets discovered with open ports
-- **ssh.csv, ftp.csv, smb.csv, telnet.csv, sql.csv, rdp.csv** - Cracked credentials
-- **datastolen/** - Exfiltrated files and database dumps
+A Docker-based vulnerable test environment is provided in `test_targets/`. See [`test_targets/README.md`](test_targets/README.md) for setup and usage.
 
 ---
 
@@ -348,14 +319,6 @@ After running Bjorn against test targets, you should see:
 - Verify Bjorn is running (`ps | grep python`)
 - Check firewall rules
 - Try accessing via the Pager's br-lan IP
-
-### Test containers not starting
-```bash
-docker-compose logs [service-name]
-```
-
-### MySQL connection refused
-Wait 30-60 seconds after `docker-compose up` for MySQL to initialize.
 
 ---
 
