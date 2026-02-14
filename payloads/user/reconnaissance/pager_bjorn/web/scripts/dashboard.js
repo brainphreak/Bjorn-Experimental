@@ -134,7 +134,6 @@ const DashboardTab = {
         document.getElementById('dash-clear-console-btn').addEventListener('click', () => {
             this.logOutput.innerHTML = '';
             this.lineCount = 0;
-            this.lastTimestamp = null;
         });
     },
 
@@ -144,13 +143,15 @@ const DashboardTab = {
     },
 
     activate() {
-        App.startPolling('dashboard-stats', () => this.refreshStats(), 5000);
-        App.startPolling('dashboard-logs', () => this.refreshLogs(), 1500);
+        this._statsCounter = 0;
+        App.startPolling('dashboard', () => {
+            this.refreshLogs();
+            if (++this._statsCounter % 3 === 0) this.refreshStats();
+        }, 1500);
     },
 
     deactivate() {
-        App.stopPolling('dashboard-stats');
-        App.stopPolling('dashboard-logs');
+        App.stopPolling('dashboard');
     },
 
     async refreshStats() {

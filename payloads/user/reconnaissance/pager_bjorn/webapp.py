@@ -176,6 +176,8 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
             self.web_utils.execute_manual_attack(self)
         elif self.path == '/clear_hosts':  # Clear discovered hosts to start fresh
             self.web_utils.clear_hosts(self)
+        elif self.path == '/stop_manual_attack':  # Stop running manual attack without touching orchestrator
+            self.web_utils.stop_manual_attack(self)
         elif self.path == '/mark_action_start':  # Mark action start time for log filtering
             self.web_utils.mark_action_start(self)
         elif self.path == '/api/terminal':

@@ -642,40 +642,22 @@ select.form-input {
     border-color: var(--gold);
 }
 
-.network-view { flex: 1; min-height: 0; overflow: auto; }
-.network-view.hidden { display: none; }
-
-/* Host cards */
+/* Host cards - flat layout, everything visible */
 .host-card {
     background: var(--bg-surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     margin-bottom: 8px;
-    overflow: hidden;
+    padding: 10px 12px;
+    transition: border-color 0.2s;
 }
-.host-header {
+.host-card.pwned {
+    border-color: var(--gold-dim);
+}
+.host-row-main {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 10px 12px;
-    cursor: pointer;
-    transition: background 0.2s;
-    gap: 8px;
-}
-.host-header:hover {
-    background: var(--bg-elevated);
-}
-.host-ip {
-    font-weight: bold;
-    color: var(--gold);
-    min-width: 100px;
-}
-.host-name {
-    color: var(--text-secondary);
-    font-size: 11px;
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    gap: 10px;
 }
 .host-status {
     width: 10px;
@@ -686,107 +668,68 @@ select.form-input {
 .host-status.alive { background: var(--success); box-shadow: 0 0 6px var(--success); }
 .host-status.dead { background: var(--danger); }
 .host-status.pwned { background: var(--gold); box-shadow: 0 0 6px var(--gold); }
-
-.host-summary {
+.host-info {
     display: flex;
-    gap: 6px;
-    align-items: center;
-    font-size: 11px;
-    color: var(--text-muted);
+    align-items: baseline;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
 }
-.host-toggle {
+.host-ip {
+    font-weight: bold;
+    color: var(--gold);
+    white-space: nowrap;
+}
+.host-name {
+    color: var(--text-primary);
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.host-mac {
     color: var(--text-muted);
     font-size: 10px;
-    transition: transform 0.2s;
+    white-space: nowrap;
 }
-.host-card.expanded .host-toggle {
-    transform: rotate(90deg);
+.host-ports {
+    color: var(--text-secondary);
+    font-size: 11px;
+    white-space: nowrap;
+    text-align: right;
 }
-
-.host-details {
-    display: none;
-    padding: 0 12px 12px;
+.host-row-attacks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+    padding-top: 6px;
     border-top: 1px solid var(--border);
 }
-.host-card.expanded .host-details {
-    display: block;
-}
-
-.host-detail-row {
-    display: flex;
-    gap: 8px;
-    padding: 4px 0;
-    font-size: 11px;
-    flex-wrap: wrap;
-}
-.host-detail-row .label {
-    color: var(--text-secondary);
-    min-width: 70px;
-}
-
-.action-result {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
+.attack-badge {
+    display: inline-block;
     font-size: 10px;
-    padding: 2px 6px;
+    padding: 2px 8px;
     border-radius: 3px;
-    margin: 2px;
+    white-space: nowrap;
 }
-.action-result.success {
+.attack-badge.success {
     background: rgba(76, 175, 80, 0.15);
     color: var(--success);
 }
-.action-result.failed {
-    background: rgba(217, 83, 79, 0.15);
-    color: var(--danger);
+.attack-badge.full-success {
+    background: rgba(233, 159, 0, 0.2);
+    color: var(--gold-bright);
 }
-.action-result.pending {
+.attack-badge.partial {
+    background: rgba(76, 175, 80, 0.1);
+    color: var(--success);
+}
+.attack-badge.failed {
+    background: rgba(217, 83, 79, 0.1);
     color: var(--text-muted);
 }
-
-/* Topology SVG */
-#topology-svg {
-    width: 100%;
-    height: 100%;
-    min-height: 400px;
-}
-.topo-node { cursor: pointer; }
-.topo-node circle {
-    stroke-width: 2;
-    transition: r 0.2s;
-}
-.topo-node:hover circle {
-    r: 22;
-}
-.topo-node text {
-    font-family: var(--font-body);
-    font-size: 9px;
-    fill: var(--text-primary);
-    text-anchor: middle;
-    pointer-events: none;
-}
-.topo-link {
-    stroke: var(--border-light);
-    stroke-width: 1;
-    stroke-dasharray: 4 2;
-}
-.topo-detail {
-    position: absolute;
-    background: var(--bg-surface);
-    border: 1px solid var(--gold-dim);
-    border-radius: var(--radius);
-    padding: 12px;
-    font-size: 11px;
-    max-width: 240px;
-    box-shadow: var(--glow-gold);
-    z-index: 10;
-}
-.topo-detail .close-detail {
-    position: absolute;
-    top: 4px;
-    right: 8px;
-    cursor: pointer;
+.attack-badge.pending {
     color: var(--text-muted);
 }
 
@@ -798,6 +741,30 @@ select.form-input {
     flex-direction: column;
     height: 100%;
     gap: 10px;
+}
+
+.attack-status {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 10px;
+    border-radius: 12px;
+}
+.attack-status.status-idle {
+    color: var(--gold);
+    border: 1px solid var(--gold);
+}
+.attack-status.status-running {
+    color: #fff;
+    background: var(--success);
+    animation: pulse-status 1.5s ease-in-out infinite;
+}
+.attack-status.status-stopping {
+    color: #fff;
+    background: var(--danger);
+}
+@keyframes pulse-status {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
 }
 
 .manual-controls {
@@ -831,6 +798,7 @@ select.form-input {
     padding: 8px;
     font-size: 11px;
     line-height: 1.5;
+    white-space: pre-wrap;
     overflow-y: auto;
     max-height: 200px;
     display: none;

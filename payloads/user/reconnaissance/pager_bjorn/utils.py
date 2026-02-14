@@ -315,10 +315,9 @@ class WebUtils:
 
             self.logger.info(f"Received request to execute {action_class} on {ip}:{port}")
 
-            # Keep orchestrator in manual mode (paused) but allow this action to run
+            # Orchestrator checks manual_mode in its loop and will stop.
+            # No need to touch orchestrator_should_exit — worker threads use it to bail out.
             self.shared_data.manual_mode = True
-            # Save and temporarily clear exit flag so manual attack can run
-            saved_exit_flag = self.shared_data.orchestrator_should_exit
             self.shared_data.orchestrator_should_exit = False
 
             # Handle NetworkScanner specially - it scans the network, doesn't need an IP
@@ -396,20 +395,12 @@ class WebUtils:
                 self.logger.info(f"[LIFECYCLE] {action_class} ENDED (failure) for {ip}:{port} in {duration:.1f}s")
             self.shared_data.write_data(current_data)
 
-            # Restore exit flag after manual attack
-            self.shared_data.orchestrator_should_exit = saved_exit_flag
-
             handler.send_response(200)
             handler.send_header("Content-type", "application/json")
             handler.end_headers()
             handler.wfile.write(json.dumps({"status": "success", "message": "Manual attack executed"}).encode('utf-8'))
         except Exception as e:
             self.logger.error(f"Error executing manual attack: {e}")
-            # Restore exit flag on error too
-            try:
-                self.shared_data.orchestrator_should_exit = saved_exit_flag
-            except:
-                pass
             handler.send_response(500)
             handler.send_header("Content-type", "application/json")
             handler.end_headers()
@@ -536,6 +527,30 @@ class WebUtils:
 
         except Exception as e:
             self.logger.error(f"Error updating netkb ports: {e}")
+
+    def stop_manual_attack(self, handler):
+        """Stop a running manual attack by setting exit flag briefly, then clearing it."""
+        try:
+            # Set exit flag to cause worker threads to stop
+            self.shared_data.orchestrator_should_exit = True
+            self.logger.info("Manual attack stop requested - exit flag set")
+            # Clear it after a brief delay so manual mode can still run new attacks
+            import threading
+            def clear_flag():
+                import time
+                time.sleep(2)
+                self.shared_data.orchestrator_should_exit = False
+                self.logger.info("Exit flag cleared after manual attack stop")
+            threading.Thread(target=clear_flag, daemon=True).start()
+            handler.send_response(200)
+            handler.send_header("Content-type", "application/json")
+            handler.end_headers()
+            handler.wfile.write(json.dumps({"status": "success", "message": "Attack stopping..."}).encode('utf-8'))
+        except Exception as e:
+            handler.send_response(500)
+            handler.send_header("Content-type", "application/json")
+            handler.end_headers()
+            handler.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode('utf-8'))
 
     def mark_action_start(self, handler):
         """Mark the start time of the current action (server-side timestamp)."""
@@ -721,6 +736,7 @@ class WebUtils:
 
     def start_orchestrator(self, handler):
         try:
+            self.shared_data.manual_mode = False
             self.shared_data.orchestrator_should_exit = False
             bjorn_instance = getattr(self.shared_data, 'bjorn_instance', None)
             if bjorn_instance is not None:

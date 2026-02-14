@@ -7,18 +7,23 @@ var AttacksTab = {
     isManualMode: false,
     isAttackRunning: false,
     attackLogInterval: null,
+    completionCheck: null,
+    completionTimeout: null,
     netkbData: null,
     actionPorts: {},
     portToActions: {},
     actionDisplayNames: {},
+    currentActionName: null,
 
     init() {
         var panel = document.getElementById('tab-attacks');
         panel.innerHTML = '<div class="attacks-panel">' +
             '<div class="flex items-center justify-between mb-8">' +
             '<span class="section-title" style="margin:0">Manual Attack Mode</span>' +
+            '<div class="flex items-center gap-8">' +
+            '<span class="attack-status" id="atk-status"></span>' +
             '<button class="btn" id="manual-mode-toggle">Enable Manual Mode</button>' +
-            '</div>' +
+            '</div></div>' +
             '<div class="manual-controls disabled" id="manual-controls">' +
             '<div class="manual-row">' +
             '<select class="form-input" id="atk-network" title="Network"></select>' +
@@ -30,6 +35,7 @@ var AttacksTab = {
             '</div>' +
             '<div class="manual-row">' +
             '<button class="btn btn-gold" id="atk-execute">Execute</button>' +
+            '<button class="btn btn-danger" id="atk-stop" style="display:none">Stop</button>' +
             '<button class="btn btn-danger btn-sm" id="atk-clear-hosts">Clear Hosts</button>' +
             '</div></div>' +
             '<div class="attack-log" id="attack-log-output"></div>' +
@@ -40,12 +46,14 @@ var AttacksTab = {
 
         document.getElementById('manual-mode-toggle').addEventListener('click', () => this.toggleManualMode());
         document.getElementById('atk-execute').addEventListener('click', () => this.executeAttack());
+        document.getElementById('atk-stop').addEventListener('click', () => this.stopAttack());
         document.getElementById('atk-clear-hosts').addEventListener('click', () => this.clearHosts());
         document.getElementById('atk-ip').addEventListener('change', () => this.updatePortDropdown());
         document.getElementById('atk-port').addEventListener('change', () => this.onPortSelected());
     },
 
     activate() {
+        this.syncManualModeState();
         this.loadOptions();
         App.startPolling('attacks', () => this.refreshTimeline(), 15000);
     },
@@ -54,29 +62,60 @@ var AttacksTab = {
         App.stopPolling('attacks');
     },
 
-    async toggleManualMode() {
+    async syncManualModeState() {
+        try {
+            var data = await App.api('/api/stats');
+            var serverManual = data && data.manual_mode;
+            if (serverManual && !this.isManualMode) {
+                this.isManualMode = true;
+                this.applyManualModeUI(true);
+            } else if (!serverManual && this.isManualMode && !this.isAttackRunning) {
+                this.isManualMode = false;
+                this.applyManualModeUI(false);
+            }
+        } catch (e) {}
+    },
+
+    applyManualModeUI(enabled) {
         var btn = document.getElementById('manual-mode-toggle');
         var controls = document.getElementById('manual-controls');
-
-        if (!this.isManualMode) {
-            this.isManualMode = true;
+        if (enabled) {
             btn.textContent = 'Disable Manual Mode';
             btn.classList.add('btn-danger');
             controls.classList.remove('disabled');
+        } else {
+            btn.textContent = 'Enable Manual Mode';
+            btn.classList.remove('btn-danger');
+            controls.classList.add('disabled');
+        }
+    },
+
+    setStatus(text, type) {
+        var el = document.getElementById('atk-status');
+        el.textContent = text;
+        el.className = 'attack-status' + (type ? ' status-' + type : '');
+    },
+
+    async toggleManualMode() {
+        var btn = document.getElementById('manual-mode-toggle');
+
+        if (!this.isManualMode) {
+            this.isManualMode = true;
+            this.applyManualModeUI(true);
             try { await App.post('/stop_orchestrator'); } catch (e) {}
+            this.setStatus('Manual Mode', 'idle');
             App.toast('Manual mode enabled - orchestrator paused', 'info');
             this.loadOptions();
         } else {
             if (this.isAttackRunning) {
-                App.toast('Wait for current attack to finish', 'error');
+                App.toast('Stop the running attack first', 'error');
                 return;
             }
             this.isManualMode = false;
-            btn.textContent = 'Enable Manual Mode';
-            btn.classList.remove('btn-danger');
-            controls.classList.add('disabled');
+            this.applyManualModeUI(false);
             this.stopAttackLog();
             document.getElementById('attack-log-output').classList.remove('visible');
+            this.setStatus('', '');
             try { await App.post('/start_orchestrator'); } catch (e) {}
             App.toast('Manual mode disabled - orchestrator resumed', 'info');
         }
@@ -103,10 +142,16 @@ var AttacksTab = {
             this.actionDisplayNames = data.action_display_names || {};
 
             var ipDrop = document.getElementById('atk-ip');
+            var prevIp = ipDrop.value;
             if (data.ips && data.ips.length) {
                 ipDrop.innerHTML = '<option value="network_scan">Scan Network</option>' +
                     data.ips.map(ip => '<option value="' + ip + '">' + ip + '</option>').join('');
-                ipDrop.value = data.ips[0];
+                // Restore previous selection if still available, otherwise select first IP
+                if (prevIp && data.ips.indexOf(prevIp) >= 0) {
+                    ipDrop.value = prevIp;
+                } else {
+                    ipDrop.value = data.ips[0];
+                }
             } else {
                 ipDrop.innerHTML = '<option value="network_scan">Scan Network (find hosts)</option>';
             }
@@ -183,31 +228,77 @@ var AttacksTab = {
         var network = document.getElementById('atk-network').value;
 
         if (ip === 'network_scan' || !ip) {
-            return this.runAttack({ ip: '', port: '', action: 'NetworkScanner', network: network }, 'NetworkScanner');
+            return this.runAttack({ ip: '', port: '', action: 'NetworkScanner', network: network }, 'Network Scan');
         }
         if (port === 'port_scan') {
-            return this.runAttack({ ip: ip, port: '', action: 'PortScanner' }, 'PortScanner');
+            return this.runAttack({ ip: ip, port: '', action: 'PortScanner' }, 'Port Scan');
         }
         if (!port || !action) {
             App.toast('Select a port and action', 'error');
             return;
         }
-        return this.runAttack({ ip: ip, port: port, action: action }, action);
+        var displayName = this.actionDisplayNames[action] || action;
+        return this.runAttack({ ip: ip, port: port, action: action }, displayName);
     },
 
     async runAttack(params, actionName) {
         this.isAttackRunning = true;
+        this.currentActionName = actionName;
+        this.setStatus('Running: ' + actionName, 'running');
+        document.getElementById('atk-execute').style.display = 'none';
+        document.getElementById('atk-stop').style.display = '';
         this.startAttackLog();
+
+        // Scans run in a background thread — POST returns immediately, need to poll for completion.
+        // Regular attacks run synchronously — POST blocks until done, no polling needed.
+        var isAsync = params.action === 'NetworkScanner' || params.action === 'PortScanner';
 
         try {
             await App.post('/mark_action_start');
             await App.post('/execute_manual_attack', params);
-            this.appendAttackLog('--- ' + actionName + ' started ---\n');
-            this.waitForCompletion(actionName);
+
+            if (isAsync) {
+                this.appendAttackLog('--- ' + actionName + ' started ---\n');
+                this.waitForCompletion(actionName);
+            } else {
+                // Attack already finished when POST resolved — just show results
+                await this.fetchAttackLogs();
+                this.attackFinished(true, actionName + ' completed');
+            }
         } catch (e) {
-            this.isAttackRunning = false;
-            this.stopAttackLog();
-            App.toast('Attack failed: ' + e.message, 'error');
+            this.attackFinished(false, 'Attack failed: ' + e.message);
+        }
+    },
+
+    attackFinished(success, message) {
+        this.isAttackRunning = false;
+        this.currentActionName = null;
+        if (this.completionCheck) { clearInterval(this.completionCheck); this.completionCheck = null; }
+        if (this.completionTimeout) { clearTimeout(this.completionTimeout); this.completionTimeout = null; }
+        this.stopAttackLog();
+        this.fetchAttackLogs();
+        document.getElementById('atk-execute').style.display = '';
+        document.getElementById('atk-stop').style.display = 'none';
+        this.setStatus('Manual Mode', 'idle');
+        this.loadOptions();
+        this.refreshTimeline();
+        if (message) {
+            App.toast(message, success ? 'success' : 'error');
+        }
+    },
+
+    async stopAttack() {
+        if (!this.isAttackRunning) return;
+        this.setStatus('Stopping...', 'stopping');
+        try {
+            // Set exit flag to kill worker threads, then clear it so manual mode still works
+            await App.post('/stop_manual_attack');
+            this.appendAttackLog('\n--- Attack stopped by user ---\n');
+            setTimeout(() => {
+                this.attackFinished(false, 'Attack stopped');
+            }, 1000);
+        } catch (e) {
+            App.toast('Failed to stop: ' + e.message, 'error');
         }
     },
 
@@ -245,27 +336,23 @@ var AttacksTab = {
 
     waitForCompletion(actionName) {
         var self = this;
-        var check = setInterval(function() {
+
+        // Check both [LIFECYCLE]...ENDED (bruteforce modules) and
+        // "ENDED (success)" / "ENDED (failure)" without [LIFECYCLE] (scanning modules)
+        this.completionCheck = setInterval(function() {
             var el = document.getElementById('attack-log-output');
             var text = el.textContent || '';
-            if (text.includes('[LIFECYCLE]') && text.includes('ENDED')) {
-                clearInterval(check);
-                self.isAttackRunning = false;
-                self.stopAttackLog();
-                self.fetchAttackLogs();
-                self.loadOptions();
-                self.refreshTimeline();
-                App.toast('Attack completed', 'success');
+            var hasLifecycleEnd = text.includes('[LIFECYCLE]') && text.includes('ENDED');
+            var hasScanEnd = text.includes('ENDED (success)') || text.includes('ENDED (failure)');
+            if (hasLifecycleEnd || hasScanEnd) {
+                self.attackFinished(true, actionName + ' completed');
             }
         }, 1000);
 
         // Safety timeout 10 min
-        setTimeout(function() {
-            clearInterval(check);
+        this.completionTimeout = setTimeout(function() {
             if (self.isAttackRunning) {
-                self.isAttackRunning = false;
-                self.stopAttackLog();
-                App.toast('Attack timed out', 'error');
+                self.attackFinished(false, actionName + ' timed out');
             }
         }, 600000);
     },

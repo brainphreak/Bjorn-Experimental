@@ -30,15 +30,17 @@ docker-compose down
 
 ## Test Services & Credentials
 
-| Service | Port | IP Address | Credentials | Notes |
-|---------|------|------------|-------------|-------|
-| SSH | 22 | 172.16.52.10 | admin:admin, test:test, root:root | Minimal Alpine container |
-| FTP | 21 | 172.16.52.11 | admin:admin | |
-| SMB | 445 | 172.16.52.12 | public: anonymous, private: admin:admin | |
-| MySQL | 3306 | 172.16.52.13 | root:root, admin:admin | |
-| Telnet | 23 | 172.16.52.14 | admin:admin, test:test, root:root | Minimal Alpine container |
-| HTTP | 80, 8080 | 172.16.52.15 | N/A | |
-| RDP | 3389 | 172.16.52.16 | admin:admin, root:root | NLA mock server |
+All services share a single IP (**172.16.52.228**) so Bjorn discovers one host with all ports open.
+
+| Service | Port | Credentials | Notes |
+|---------|------|-------------|-------|
+| SSH | 22 | admin:admin, test:test, root:root | Minimal Alpine container |
+| FTP | 21 | admin:admin | |
+| SMB | 445 | public: anonymous, private: admin:admin | |
+| MySQL | 3306 | root:root, admin:admin | |
+| Telnet | 23 | admin:admin, test:test, root:root | Minimal Alpine container |
+| HTTP | 80, 8080 | N/A | |
+| RDP | 3389 | admin:admin, root:root | NLA mock server |
 
 All services run on **172.16.52.0/24** - the same network as the Pager (172.16.52.1).
 

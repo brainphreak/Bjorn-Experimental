@@ -411,7 +411,7 @@ class Orchestrator:
             self.network_scanner.scan()
             self.shared_data.bjornstatustext2 = ""
 
-            while not self.shared_data.orchestrator_should_exit:
+            while not self.shared_data.orchestrator_should_exit and not self.shared_data.manual_mode:
                 current_data = self.shared_data.read_data()
                 action_retry_pending = False
 
