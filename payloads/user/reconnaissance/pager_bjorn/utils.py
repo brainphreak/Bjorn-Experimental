@@ -575,6 +575,9 @@ class WebUtils:
                     handler.wfile.write(b"No log entries found yet. Run an attack to generate logs.")
                 return
 
+            # Deduplicate log lines (same message can appear in multiple log files)
+            all_log_lines = list(dict.fromkeys(all_log_lines))
+
             # Sort by timestamp (including milliseconds)
             all_log_lines.sort(key=lambda x: x[:23])
 
