@@ -62,48 +62,55 @@ Bjorn is a Tamagotchi-style autonomous network reconnaissance companion. It auto
 
 ## Usage
 
-### Startup
+### Graphical Menu
 
-When launching Bjorn:
+When launching Bjorn, a graphical menu is displayed on the Pager LCD:
+
 1. Dependencies are checked automatically
 2. Network connectivity is verified
-3. If multiple networks are detected, select one:
-   - **RED** = 1st network
-   - **GREEN** = 2nd network
-   - **UP** = 3rd network
-4. Press **GREEN** to start, **RED** to exit
+3. The menu displays:
+   - **Start Raid** — Begin scanning and attacking
+   - **Interface** — Select which network interface to use (LEFT/RIGHT to cycle)
+   - **Web UI** — Toggle the web interface on/off (LEFT/RIGHT to toggle)
+   - **Clear Data** — Submenu to clear logs, credentials, stolen data, or all data
+   - **Exit** — Return to the Pager launcher
 
-### Controls
+Use **UP/DOWN** to navigate, **A (GREEN)** to select, **B (RED)** to go back.
+
+### Controls While Running
 
 | Button | Action |
 |--------|--------|
-| **GREEN** | Start Bjorn / Confirm |
-| **RED** | Open Exit Menu |
-| **UP** | Clear Logs |
-| **LEFT** | Clear Stolen Data |
-| **RIGHT** | Clear Credentials |
-| **DOWN** | Clear All |
+| **B (RED)** | Open Pause Menu |
 
-### Exit Menu
+### Pause Menu
 
-Press **RED** while Bjorn is running to open the exit menu:
+Press **B** while Bjorn is running to open the pause menu:
 
 | Option | Description |
 |--------|-------------|
 | **Back** | Return to Bjorn |
-| **Brightness** | Adjust screen brightness (20-100%) |
-| **Exit** | Stop Bjorn and return to launcher |
+| **Settings** | Adjust screen brightness (20-100%) |
+| **Main Menu** | Stop Bjorn and return to the graphical start menu |
+| **Exit** | Stop Bjorn and return to the Pager launcher |
 
 The screen automatically dims after a configurable timeout to save battery. Any button press wakes the screen.
 
 ### Web Interface
 
-Access the web UI at `http://<pager-ip>:8000` for:
-- Real-time log viewer with syntax highlighting
-- Manual mode toggle (pause automatic attacks)
-- System controls (reboot, restart service, backup/restore)
-- Orchestrator controls (start/stop)
-- Live screen preview
+Access the web UI at `http://<pager-ip>:8000`. It is a single-page app with the following tabs:
+
+| Tab | Description |
+|-----|-------------|
+| **Dashboard** | Live stats grid (targets, credentials, attacks, vulns, ports, data stolen, zombies, level, gold, netKB) with integrated log console featuring level filters and auto-scroll |
+| **Network** | Host table from network knowledge base with per-host port scan results, brute force status, and file steal status. Includes SVG topology map view |
+| **Attacks** | Attack timeline with chronological history. Auto/Manual mode toggle with manual attack controls (select target, port, action) |
+| **Loot** | Three sub-tabs: Credentials (grouped by protocol), Stolen Files (with download links), and Attack Logs (per-module log files) |
+| **Config** | All settings from `shared_config.json` rendered as a form with collapsible sections, toggle switches, and a save button |
+| **Terminal** | Execute commands directly on the device. Command history via up/down arrows |
+| **Bjorn** | Live LCD mirror — streams the Pager's framebuffer to the browser with zoom controls |
+
+Only the active tab polls the server — inactive tabs stop polling to conserve device resources.
 
 ## Configuration
 
@@ -145,10 +152,11 @@ Edit `config/shared_config.json` to customize Bjorn's behavior:
 | `screen_dim_timeout` | 60 | Seconds of inactivity before dimming |
 
 ### Blacklists
-| Setting | Description |
-|---------|-------------|
-| `mac_scan_blacklist` | MAC addresses to exclude from scanning |
-| `ip_scan_blacklist` | IP addresses to exclude from scanning |
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `blacklist_gateway` | true | Automatically blacklist the network gateway |
+| `mac_scan_blacklist` | [] | MAC addresses to exclude from scanning |
+| `ip_scan_blacklist` | [] | IP addresses to exclude from scanning |
 
 ### Dictionary Files
 
@@ -232,13 +240,16 @@ All data is stored in `/mmc/root/loot/bjorn/`:
 
 ```
 pager_bjorn/
+├── payload.sh         # Launcher script (handles exit codes, spinner)
+├── bjorn_menu.py      # Graphical startup menu (interface select, clear data)
 ├── Bjorn.py           # Main entry point
 ├── display.py         # Pager LCD display (pagerctl)
 ├── orchestrator.py    # Task scheduler
 ├── shared.py          # Shared state & config
+├── utils.py           # Web server utilities
+├── webapp.py          # HTTP server (web UI + API)
 ├── pagerctl.py        # Pager hardware interface
 ├── libpagerctl.so     # Native display library
-├── payload.sh         # Launcher script
 ├── bin/               # Native binaries (MIPS)
 │   ├── sfreerdp       # FreeRDP client (auth-only)
 │   ├── libssl.so.3    # OpenSSL (sfreerdp dep)
@@ -262,6 +273,21 @@ pager_bjorn/
 ├── config/
 │   ├── shared_config.json
 │   └── actions.json
+├── web/               # Web UI (single-page app)
+│   ├── index.html     # SPA shell
+│   ├── css/
+│   │   └── bjorn.css  # Viking theme
+│   ├── scripts/
+│   │   ├── app.js     # SPA router & polling manager
+│   │   ├── dashboard.js  # Stats + integrated console
+│   │   ├── network.js    # Host table + SVG topology
+│   │   ├── attacks.js    # Timeline + manual mode
+│   │   ├── loot.js       # Credentials, files, logs
+│   │   ├── config.js     # Settings editor
+│   │   ├── terminal.js   # Device command execution
+│   │   └── bjorn.js      # LCD framebuffer mirror
+│   └── fonts/
+│       └── Viking.TTF
 └── resources/
     ├── dictionary/    # Wordlists
     ├── fonts/         # Display fonts
@@ -270,16 +296,16 @@ pager_bjorn/
 
 ## Clearing Data
 
-To start fresh, delete the contents of:
-- `/mmc/root/loot/bjorn/output/crackedpwd/*.csv`
-- `/mmc/root/loot/bjorn/output/data_stolen/*`
-- `/mmc/root/loot/bjorn/output/scan_results/*`
-- `/mmc/root/loot/bjorn/logs/*`
-- `/mmc/root/loot/bjorn/archives/*`
-- `/mmc/root/loot/bjorn/netkb.csv`
-- `/mmc/root/loot/bjorn/livestatus.csv`
+Use the **Clear Data** submenu from the graphical startup menu:
 
-Or use the web interface's "Clear Files" button.
+| Option | What it clears |
+|--------|----------------|
+| **Clear Logs** | All log files in `logs/` |
+| **Clear Credentials** | Cracked password CSVs in `output/crackedpwd/` |
+| **Clear Stolen Data** | Exfiltrated files in `output/data_stolen/` |
+| **Clear All** | Everything above plus scan results, vulnerabilities, zombies, archives, netkb, and livestatus |
+
+Each option requires confirmation before proceeding.
 
 ## Logging
 
@@ -326,8 +352,7 @@ A Docker-based vulnerable test environment is provided in `test_targets/`. See [
 
 Features planned but not yet implemented:
 
-- **Vulnerability Scanner** - Nmap vuln script integration exists but is disabled. Requires web UI integration, loot page, display counter, and extensive testing before enabling.
-- **Web UI Log Duplicates** - Occasional duplicate log entries in web console due to JavaScript polling race condition. Cosmetic issue only - actual log files are correct.
+- **Vulnerability Scanner** - Nmap vuln script integration exists but is disabled. Requires extensive testing before enabling.
 
 ---
 
