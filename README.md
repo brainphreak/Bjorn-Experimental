@@ -87,10 +87,14 @@ Press **B** while Bjorn is running to open the pause menu:
 
 | Option | Description |
 |--------|-------------|
-| **Back** | Return to Bjorn |
-| **Settings** | Adjust screen brightness (20-100%) |
+| **BACK** | Return to Bjorn |
 | **Main Menu** | Stop Bjorn and return to the graphical start menu |
-| **Exit** | Stop Bjorn and return to the Pager launcher |
+| **> Pagergotchi** | Hand off to Pagergotchi (only shown if installed) |
+| **Exit Bjorn** | Stop Bjorn and return to the Pager launcher |
+
+The pause menu also includes an integrated **brightness control** — use **UP/DOWN** to adjust brightness (20-100%), **LEFT/RIGHT** to navigate menu options, **GREEN** to confirm, **RED** to go back.
+
+**Payload handoff:** Bjorn dynamically discovers other payloads via `launch_*.sh` scripts in the payload directory. Each launcher script declares a `# Title:` and `# Requires:` path — if the required path exists, the launcher appears as a menu option. Selecting it writes the launcher path to `data/.next_payload` and exits with code 42, which `payload.sh` picks up to launch the target payload.
 
 The screen automatically dims after a configurable timeout to save battery. Any button press wakes the screen.
 
@@ -100,19 +104,30 @@ Access the web UI at `http://<pager-ip>:8000`. It is a single-page app with the 
 
 | Tab | Description |
 |-----|-------------|
-| **Dashboard** | Live stats grid (targets, credentials, attacks, vulns, ports, data stolen, zombies, level, gold, netKB) with integrated log console featuring level filters and auto-scroll |
-| **Network** | Host table from network knowledge base with per-host port scan results, brute force status, and file steal status. Includes SVG topology map view |
-| **Attacks** | Attack timeline with chronological history. Auto/Manual mode toggle with manual attack controls (select target, port, action) |
-| **Loot** | Three sub-tabs: Credentials (grouped by protocol), Stolen Files (with download links), and Attack Logs (per-module log files) |
-| **Config** | All settings from `shared_config.json` rendered as a form with collapsible sections, toggle switches, and a save button |
-| **Terminal** | Execute commands directly on the device. Command history via up/down arrows |
-| **Bjorn** | Live LCD mirror — streams the Pager's framebuffer to the browser with zoom controls |
+| **Dashboard** | Orchestrator status, live stats grid (targets, credentials, attacks, vulns, ports, data stolen, zombies, level, gold, netKB), and integrated log console with level filters (ALL/INFO/WARN/ERROR), auto-scroll, and incremental log fetching |
+| **Network** | Host cards with color-coded status (green=alive, red=dead, gold=pwned) and per-protocol attack badges showing brute force and file steal results for each host |
+| **Attacks** | Attack timeline with chronological history. Manual mode toggle with target/port/action dropdowns, execute and stop buttons, running status indicator, and live attack log output |
+| **Loot** | Three sub-tabs: Credentials (grouped by protocol), Stolen Files (collapsible tree with download links), and Attack Logs (categorized per-module log files with download links) |
+| **Config** | All settings from `shared_config.json` rendered as a form with collapsible sections, toggle switches, and save/restore buttons |
+| **Terminal** | Execute commands directly on the device with command history (up/down arrows, persisted in session) |
+| **Bjorn** | Live LCD mirror — renders the Pager's raw RGB565 framebuffer in the browser. Scroll-to-zoom on desktop, pinch-to-zoom on mobile |
 
 Only the active tab polls the server — inactive tabs stop polling to conserve device resources.
 
 ## Configuration
 
 Edit `config/shared_config.json` to customize Bjorn's behavior:
+
+### General Settings
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `manual_mode` | false | Enable manual attack mode (disables orchestrator) |
+| `websrv` | true | Enable the web server |
+| `debug_mode` | true | Enable debug mode |
+| `retry_success_actions` | false | Retry actions that previously succeeded |
+| `retry_failed_actions` | true | Retry actions that previously failed |
+| `blacklist_gateway` | true | Automatically blacklist the network gateway |
+| `blacklistcheck` | true | Enable blacklist checking |
 
 ### Timing Settings
 | Setting | Default | Description |
@@ -121,13 +136,18 @@ Edit `config/shared_config.json` to customize Bjorn's behavior:
 | `failed_retry_delay` | 600 | Seconds before retrying failed actions |
 | `success_retry_delay` | 900 | Seconds before retrying successful actions |
 | `startup_delay` | 10 | Delay before starting orchestrator |
+| `web_delay` | 2 | Web server startup delay |
+| `screen_delay` | 1 | Screen update interval |
+| `livestatus_delay` | 8 | Seconds between livestatus CSV updates |
 
 ### Network Settings
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `scan_network_prefix` | 24 | Network prefix for scanning (e.g., /24) |
 | `nmap_scan_aggressivity` | -T2 | Nmap timing template (-T0 to -T5) |
-| `portlist` | [...] | List of ports to scan |
+| `portlist` | [...] | List of ports to scan (41 ports by default) |
+| `mac_scan_blacklist` | [] | MAC addresses to exclude from scanning |
+| `ip_scan_blacklist` | [] | IP addresses to exclude from scanning |
 
 ### File Stealing Settings
 | Setting | Default | Description |
@@ -137,10 +157,21 @@ Edit `config/shared_config.json` to customize Bjorn's behavior:
 | `steal_file_names` | [...] | Specific filenames to steal (e.g., `id_rsa`, `.env`) |
 | `steal_file_extensions` | [...] | File extensions to steal (e.g., `.pem`, `.sql`, `.db`) |
 
-### Worker Settings
+### Performance Settings
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `worker_threads` | 10 | Number of concurrent brute force threads |
+| `worker_threads` | 5 | Number of concurrent brute force threads |
+| `bruteforce_queue_timeout` | 600 | Seconds before a queued brute force task times out |
+
+### Time Wait Settings
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `timewait_ftp` | 0 | Delay between FTP brute force attempts (seconds) |
+| `timewait_ssh` | 0 | Delay between SSH brute force attempts (seconds) |
+| `timewait_telnet` | 0 | Delay between Telnet brute force attempts (seconds) |
+| `timewait_smb` | 0 | Delay between SMB brute force attempts (seconds) |
+| `timewait_sql` | 0 | Delay between MySQL brute force attempts (seconds) |
+| `timewait_rdp` | 0 | Delay between RDP brute force attempts (seconds) |
 
 ### Display Settings
 | Setting | Default | Description |
@@ -149,12 +180,14 @@ Edit `config/shared_config.json` to customize Bjorn's behavior:
 | `screen_dim_brightness` | 25 | Brightness when dimmed (20-100%) |
 | `screen_dim_timeout` | 60 | Seconds of inactivity before dimming |
 
-### Blacklists
+### Logging Settings
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `blacklist_gateway` | true | Automatically blacklist the network gateway |
-| `mac_scan_blacklist` | [] | MAC addresses to exclude from scanning |
-| `ip_scan_blacklist` | [] | IP addresses to exclude from scanning |
+| `log_debug` | true | Log DEBUG level messages |
+| `log_info` | true | Log INFO level messages |
+| `log_warning` | true | Log WARNING level messages |
+| `log_error` | true | Log ERROR level messages |
+| `log_critical` | true | Log CRITICAL level messages |
 
 ### Dictionary Files
 
@@ -241,7 +274,8 @@ pager_bjorn/
 ├── payload.sh         # Launcher script (handles exit codes, spinner)
 ├── bjorn_menu.py      # Graphical startup menu (interface select, clear data)
 ├── Bjorn.py           # Main entry point
-├── display.py         # Pager LCD display (pagerctl)
+├── display.py         # Pager LCD display (pagerctl, pause menu, payload handoff)
+├── launch_pagergotchi.sh  # Handoff launcher for Pagergotchi
 ├── orchestrator.py    # Task scheduler
 ├── shared.py          # Shared state & config
 ├── utils.py           # Web server utilities
