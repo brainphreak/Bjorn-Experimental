@@ -153,7 +153,7 @@ class BjornMenu:
 
     def _get_menu_items(self, iface_idx, web_ui):
         """Build the list of menu items for drawing."""
-        items = [{'label': 'Start Raid'}]
+        items = [{'label': 'Start Bjorn'}]
 
         # Interface selector — show IP with configured scan prefix, not raw interface CIDR
         if self.interfaces:
@@ -187,7 +187,7 @@ class BjornMenu:
         selected = 0
         iface_idx = 0
         web_ui = True
-        num_options = 5  # Start Raid, Interface, Web UI, Clear Data, Exit
+        num_options = 5  # Start Bjorn, Interface, Web UI, Clear Data, Exit
 
         self._draw_main_menu(selected, iface_idx, web_ui)
 
@@ -214,7 +214,7 @@ class BjornMenu:
                     self._draw_main_menu(selected, iface_idx, web_ui)
             elif btn == 'SELECT':
                 if selected == 0:
-                    # Start Raid
+                    # Start Bjorn
                     if not self.interfaces:
                         self._show_message("No network!", WARNING_COLOR, "Connect to a network first", DIM_COLOR)
                         self._wait_button()
