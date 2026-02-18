@@ -198,7 +198,7 @@ class WebUtils:
                     for action in actions_config:
                         b_class = action.get('b_class')
                         b_port = action.get('b_port')
-                        # Include actions that have a specific port (not None, not 0)
+                        # Include actions that have a specific port (not None, not 0) and aren't disabled
                         if b_class and b_port and b_port != 0:
                             valid_actions.append(b_class)
                             action_ports[b_class] = b_port
@@ -261,7 +261,7 @@ class WebUtils:
                 'SSHBruteforce', 'FTPBruteforce', 'TelnetBruteforce',
                 'SMBBruteforce', 'RDPBruteforce', 'SQLBruteforce',
                 'StealFilesSSH', 'StealFilesFTP', 'StealFilesTelnet',
-                'StealFilesSMB', 'StealFilesRDP', 'StealDataSQL',
+                'StealFilesSMB', 'StealDataSQL',
                 'NmapVulnScanner'
             ]
             hosts = []
@@ -281,9 +281,15 @@ class WebUtils:
                     'actions': actions_data
                 })
 
+            # Encode hostname in IP keys for vhost support (ip::hostname when hostname exists)
+            def make_ip_key(row):
+                ip = row.get('IPs', row.get('IP Address', ''))
+                hostname = row.get('Hostnames', '')
+                return f"{ip}::{hostname}" if hostname else ip
+
             response_data = {
-                'ips': [row.get('IPs', row.get('IP Address', '')) for row in data],
-                'ports': {row.get('IPs', row.get('IP Address', '')): get_ports_from_row(row) for row in data},
+                'ips': [make_ip_key(row) for row in data],
+                'ports': {make_ip_key(row): get_ports_from_row(row) for row in data},
                 'actions': valid_actions,
                 'action_ports': action_ports,  # Map action -> port
                 'port_to_actions': port_to_actions,  # Map port -> [actions] for auto-select
@@ -310,13 +316,23 @@ class WebUtils:
             port = params.get('port', '')
             action_class = params['action']
             network = params.get('network', '')  # Optional: specific network to scan
+            hostname = params.get('hostname', '')  # Optional: for vhost-aware HTTP scanning
 
             self.logger.info(f"Received request to execute {action_class} on {ip}:{port}")
+
+            # Reject if an attack is already running
+            if self.shared_data.manual_attack_running:
+                raise Exception("An attack is already running. Stop it first.")
 
             # Orchestrator checks manual_mode in its loop and will stop.
             # No need to touch orchestrator_should_exit — worker threads use it to bail out.
             self.shared_data.manual_mode = True
             self.shared_data.orchestrator_should_exit = False
+
+            # Track running attack so UI can recover state after browser refresh
+            is_async = action_class in ('NetworkScanner', 'PortScanner', 'NmapVulnScanner')
+            self.shared_data.manual_attack_running = True
+            self.shared_data.manual_attack_name = action_class
 
             # Handle NetworkScanner specially - it scans the network, doesn't need an IP
             if action_class == 'NetworkScanner':
@@ -326,7 +342,14 @@ class WebUtils:
                 else:
                     self.logger.info("Executing NetworkScanner to discover hosts...")
                 import threading
-                scan_thread = threading.Thread(target=self.network_scanner.scan, args=(network,) if network else ())
+                def run_network_scan():
+                    try:
+                        self.network_scanner.scan(network) if network else self.network_scanner.scan()
+                    finally:
+                        self.shared_data.manual_attack_running = False
+                        self.shared_data.manual_attack_name = None
+                        self.shared_data.orchestrator_should_exit = False
+                scan_thread = threading.Thread(target=run_network_scan)
                 scan_thread.start()
                 handler.send_response(200)
                 handler.send_header("Content-type", "application/json")
@@ -341,7 +364,14 @@ class WebUtils:
                 self.ensure_network_scanner()  # Only load scanner module
                 self.logger.info(f"Executing PortScanner on {ip}...")
                 import threading
-                scan_thread = threading.Thread(target=self.scan_ports_single_ip, args=(ip,))
+                def run_port_scan():
+                    try:
+                        self.scan_ports_single_ip(ip)
+                    finally:
+                        self.shared_data.manual_attack_running = False
+                        self.shared_data.manual_attack_name = None
+                        self.shared_data.orchestrator_should_exit = False
+                scan_thread = threading.Thread(target=run_port_scan)
                 scan_thread.start()
                 handler.send_response(200)
                 handler.send_header("Content-type", "application/json")
@@ -352,18 +382,53 @@ class WebUtils:
             # Handle NmapVulnScanner - can run on specific IP or all hosts
             if action_class == 'NmapVulnScanner':
                 self.ensure_nmap_scanner()  # Only load nmap module
-                self.logger.info(f"Executing NmapVulnScanner on {ip if ip else 'all hosts'}...")
-                if ip:
-                    result = self.nmap_vuln_scanner.execute(ip=ip)
-                else:
-                    result = self.nmap_vuln_scanner.execute()
+                scan_hostname = hostname  # capture for closure
+                scan_port = port  # capture specific port for closure (empty = all)
+                self.logger.info(f"Executing NmapVulnScanner on {ip if ip else 'all hosts'}" + (f":{scan_port}" if scan_port else "") + (f" (Host: {scan_hostname})" if scan_hostname else "") + "...")
+                import threading
+
+                def run_vuln_scan():
+                    try:
+                        current_data = self.shared_data.read_data()
+                        if ip:
+                            # Match by IP+hostname for vhost targets
+                            if scan_hostname:
+                                row = next((r for r in current_data if r["IPs"] == ip and r.get("Hostnames", "") == scan_hostname), None)
+                            else:
+                                row = next((r for r in current_data if r["IPs"] == ip), None)
+                            if row and row.get("Ports"):
+                                # If a specific port was selected, only scan that port
+                                if scan_port:
+                                    row["Ports"] = scan_port
+                                self.shared_data.attacksnbr += 1
+                                result = self.nmap_vuln_scanner.execute(ip, row, "NmapVulnScanner")
+                                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                                row["NmapVulnScanner"] = f'{result}_{timestamp}'
+                                self.shared_data.write_data(current_data)
+                            else:
+                                self.logger.warning(f"No data or ports found for IP: {ip}")
+                        else:
+                            for row in current_data:
+                                if row.get("Alive") == "1" and row.get("Ports"):
+                                    self.shared_data.attacksnbr += 1
+                                    result = self.nmap_vuln_scanner.execute(row["IPs"], row, "NmapVulnScanner")
+                                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                                    row["NmapVulnScanner"] = f'{result}_{timestamp}'
+                            self.shared_data.write_data(current_data)
+                    except Exception as e:
+                        self.logger.error(f"Error in vulnerability scan thread: {e}")
+                    finally:
+                        self.shared_data.bjornorch_status = "IDLE"
+                        self.shared_data.manual_attack_running = False
+                        self.shared_data.manual_attack_name = None
+                        self.shared_data.orchestrator_should_exit = False
+
+                scan_thread = threading.Thread(target=run_vuln_scan)
+                scan_thread.start()
                 handler.send_response(200)
                 handler.send_header("Content-type", "application/json")
                 handler.end_headers()
-                if result == 'success':
-                    handler.wfile.write(json.dumps({"status": "success", "message": "Vulnerability scan completed"}).encode('utf-8'))
-                else:
-                    handler.wfile.write(json.dumps({"status": "error", "message": "Vulnerability scan failed"}).encode('utf-8'))
+                handler.wfile.write(json.dumps({"status": "success", "message": f"Vulnerability scan started{' on ' + ip if ip else ''}"}).encode('utf-8'))
                 return
 
             # Regular action - load only the specific action needed
@@ -380,6 +445,7 @@ class WebUtils:
 
             action_key = action_instance.action_name
             self.logger.info(f"[LIFECYCLE] {action_class} STARTED on {ip}:{port}")
+            self.shared_data.attacksnbr += 1
             start_time = datetime.now()
             result = action_instance.execute(ip, port, row, action_key)
             duration = (datetime.now() - start_time).total_seconds()
@@ -392,6 +458,8 @@ class WebUtils:
                 row[action_key] = f'failed_{timestamp}'
                 self.logger.info(f"[LIFECYCLE] {action_class} ENDED (failure) for {ip}:{port} in {duration:.1f}s")
             self.shared_data.write_data(current_data)
+            self.shared_data.manual_attack_running = False
+            self.shared_data.manual_attack_name = None
 
             handler.send_response(200)
             handler.send_header("Content-type", "application/json")
@@ -399,6 +467,8 @@ class WebUtils:
             handler.wfile.write(json.dumps({"status": "success", "message": "Manual attack executed"}).encode('utf-8'))
         except Exception as e:
             self.logger.error(f"Error executing manual attack: {e}")
+            self.shared_data.manual_attack_running = False
+            self.shared_data.manual_attack_name = None
             handler.send_response(500)
             handler.send_header("Content-type", "application/json")
             handler.end_headers()
@@ -511,7 +581,7 @@ class WebUtils:
                     row['Ports'] = ';'.join(sorted_ports)
                     updated = True
                     self.logger.info(f"Updated ports for {ip}: {row['Ports']}")
-                    break
+                    # Don't break — update all rows with same IP (vhost entries share ports)
 
             if not updated:
                 self.logger.warning(f"IP {ip} not found in netkb, cannot update ports")
@@ -527,19 +597,19 @@ class WebUtils:
             self.logger.error(f"Error updating netkb ports: {e}")
 
     def stop_manual_attack(self, handler):
-        """Stop a running manual attack by setting exit flag briefly, then clearing it."""
+        """Stop a running manual attack by setting exit flag and killing subprocesses."""
         try:
             # Set exit flag to cause worker threads to stop
             self.shared_data.orchestrator_should_exit = True
+            self.shared_data.manual_attack_running = False
+            self.shared_data.manual_attack_name = None
             self.logger.info("Manual attack stop requested - exit flag set")
-            # Clear it after a brief delay so manual mode can still run new attacks
-            import threading
-            def clear_flag():
-                import time
-                time.sleep(2)
-                self.shared_data.orchestrator_should_exit = False
-                self.logger.info("Exit flag cleared after manual attack stop")
-            threading.Thread(target=clear_flag, daemon=True).start()
+            # Kill any running nmap processes so the blocking subprocess.run() returns immediately
+            try:
+                subprocess.run(['killall', 'nmap'], capture_output=True, timeout=5)
+                self.logger.info("Killed nmap processes")
+            except Exception:
+                pass
             handler.send_response(200)
             handler.send_header("Content-type", "application/json")
             handler.end_headers()
@@ -566,6 +636,92 @@ class WebUtils:
             handler.end_headers()
             handler.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode('utf-8'))
 
+    def serve_vulnerabilities(self, handler):
+        """Serve vulnerability scan results as JSON."""
+        try:
+            summary_file = self.shared_data.vuln_summary_file
+            vuln_dir = self.shared_data.vulnerabilities_dir
+            summary = []
+
+            if os.path.exists(summary_file):
+                with open(summary_file, 'r', newline='', encoding='utf-8') as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        vulns = row.get("Vulnerabilities", "")
+                        if vulns:
+                            summary.append({
+                                "ip": row.get("IP", ""),
+                                "hostname": row.get("Hostname", ""),
+                                "mac": row.get("MAC Address", ""),
+                                "port": row.get("Port", ""),
+                                "vulnerabilities": vulns
+                            })
+
+            # Count unique vulnerabilities
+            all_vulns = set()
+            for entry in summary:
+                for v in entry["vulnerabilities"].split("; "):
+                    if v.strip():
+                        all_vulns.add(v.strip())
+
+            # List available detail files
+            detail_files = []
+            if os.path.exists(vuln_dir):
+                for f in os.listdir(vuln_dir):
+                    if f.endswith('_vuln_scan.txt'):
+                        detail_files.append(f)
+
+            response = {
+                "summary": summary,
+                "total_count": len(all_vulns),
+                "hosts_scanned": len(summary),
+                "detail_files": detail_files
+            }
+
+            handler.send_response(200)
+            handler.send_header("Content-type", "application/json")
+            handler.send_header("Cache-Control", "no-cache")
+            handler.end_headers()
+            handler.wfile.write(json.dumps(response).encode('utf-8'))
+        except Exception as e:
+            self.logger.error(f"Error serving vulnerabilities: {e}")
+            handler.send_response(500)
+            handler.send_header("Content-type", "application/json")
+            handler.end_headers()
+            handler.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode('utf-8'))
+
+    def serve_vulnerability_detail(self, handler, ip):
+        """Serve structured vulnerability details for a specific IP."""
+        try:
+            vuln_dir = self.shared_data.vulnerabilities_dir
+            details = None
+
+            if os.path.exists(vuln_dir):
+                # Try JSON details first (structured data)
+                for f in os.listdir(vuln_dir):
+                    if f.endswith('_vuln_details.json') and ip in f:
+                        file_path = os.path.join(vuln_dir, f)
+                        with open(file_path, 'r', encoding='utf-8') as fh:
+                            details = json.load(fh)
+                        break
+
+            if details is not None:
+                handler.send_response(200)
+                handler.send_header("Content-type", "application/json")
+                handler.end_headers()
+                handler.wfile.write(json.dumps({"ip": ip, "findings": details}).encode('utf-8'))
+            else:
+                handler.send_response(404)
+                handler.send_header("Content-type", "application/json")
+                handler.end_headers()
+                handler.wfile.write(json.dumps({"status": "error", "message": f"No detail found for {ip}"}).encode('utf-8'))
+        except Exception as e:
+            self.logger.error(f"Error serving vulnerability detail: {e}")
+            handler.send_response(500)
+            handler.send_header("Content-type", "application/json")
+            handler.end_headers()
+            handler.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode('utf-8'))
+
     def serve_stats(self, handler):
         """Serve dashboard stats from shared_data — zero computation, just reads attributes."""
         try:
@@ -585,6 +741,8 @@ class WebUtils:
                 'bjornstatustext': getattr(sd, 'bjornstatustext', 'IDLE'),
                 'bjornstatustext2': getattr(sd, 'bjornstatustext2', ''),
                 'manual_mode': getattr(sd, 'manual_mode', False),
+                'manual_attack_running': getattr(sd, 'manual_attack_running', False),
+                'manual_attack_name': getattr(sd, 'manual_attack_name', None),
                 'orchestrator_should_exit': getattr(sd, 'orchestrator_should_exit', False),
             }
             handler.send_response(200)
@@ -1159,6 +1317,68 @@ class WebUtils:
             handler.end_headers()
             handler.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode('utf-8'))
 
+    def add_manual_target(self, handler):
+        """Add a custom IP or hostname as a manual target in netkb."""
+        import socket
+        try:
+            content_length = int(handler.headers['Content-Length'])
+            post_data = handler.rfile.read(content_length).decode('utf-8')
+            params = json.loads(post_data)
+            target = params.get('target', '').strip()
+            if not target:
+                raise Exception("No target specified")
+
+            # Resolve hostname to IP
+            try:
+                ip = socket.getaddrinfo(target, None, socket.AF_INET)[0][4][0]
+            except socket.gaierror:
+                raise Exception(f"Could not resolve: {target}")
+
+            self.logger.info(f"Adding manual target: {target} -> {ip}")
+
+            # Check if IP already exists in netkb
+            netkb_file = self.shared_data.netkbfile
+            rows = []
+            headers = []
+            if os.path.exists(netkb_file):
+                with open(netkb_file, 'r', encoding='utf-8') as f:
+                    reader = csv.DictReader(f)
+                    headers = reader.fieldnames or []
+                    rows = list(reader)
+
+            if not headers:
+                headers = ['MAC Address', 'IPs', 'Hostnames', 'Alive', 'Ports']
+
+            hostname_val = target if target != ip else ''
+            existing = next((r for r in rows if r.get('IPs') == ip and r.get('Hostnames', '') == hostname_val), None)
+            if existing:
+                existing['Alive'] = '1'
+            else:
+                new_row = {h: '' for h in headers}
+                new_row['IPs'] = ip
+                new_row['MAC Address'] = 'manual'
+                new_row['Alive'] = '1'
+                if target != ip:
+                    new_row['Hostnames'] = target
+                rows.append(new_row)
+
+            with open(netkb_file, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=headers)
+                writer.writeheader()
+                writer.writerows(rows)
+
+            resp = {"status": "success", "ip": ip, "hostname": target if target != ip else ""}
+            handler.send_response(200)
+            handler.send_header("Content-type", "application/json")
+            handler.end_headers()
+            handler.wfile.write(json.dumps(resp).encode('utf-8'))
+        except Exception as e:
+            self.logger.error(f"Error adding manual target: {e}")
+            handler.send_response(400)
+            handler.send_header("Content-type", "application/json")
+            handler.end_headers()
+            handler.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode('utf-8'))
+
     def clear_hosts(self, handler):
         """Clear the netkb file (discovered hosts) to start fresh on a new network."""
         try:
@@ -1315,7 +1535,7 @@ class WebUtils:
                 brute_force_cols = ['SSHBruteforce', 'FTPBruteforce', 'TelnetBruteforce',
                                    'SMBBruteforce', 'RDPBruteforce', 'SQLBruteforce']
                 steal_cols = ['StealFilesSSH', 'StealFilesFTP', 'StealFilesTelnet',
-                             'StealFilesSMB', 'StealFilesRDP', 'StealDataSQL']
+                             'StealFilesSMB', 'StealDataSQL']
                 other_cols = ['NmapVulnScanner', 'NetworkScanner']
 
                 def get_status(cell):
@@ -1572,12 +1792,16 @@ method=auto
             # Define log categories
             categories = {
                 "System": {
-                    "logs": ["bjorn.py.log", "orchestrator.py.log", "webapp.py.log", "utils.py.log"],
+                    "logs": ["Bjorn.py.log", "orchestrator.py.log", "webapp.py.log", "utils.py.log"],
                     "label": "System Logs"
                 },
                 "Scanning": {
-                    "logs": ["scanning.py.log", "nmap_vuln_scanner.py.log"],
+                    "logs": ["scanning.py.log"],
                     "label": "Network Scanning"
+                },
+                "VulnScan": {
+                    "logs": ["nmap_vuln_scanner.py.log"],
+                    "label": "Vulnerability Scanner"
                 },
                 "SSH": {
                     "logs": ["ssh_connector.py.log", "steal_files_ssh.py.log"],
@@ -1596,11 +1820,11 @@ method=auto
                     "label": "Telnet (Brute Force + File Stealer)"
                 },
                 "RDP": {
-                    "logs": ["rdp_connector.py.log", "steal_files_rdp.py.log"],
-                    "label": "RDP (Brute Force + File Stealer)"
+                    "logs": ["rdp_connector.py.log"],
+                    "label": "RDP (Brute Force)"
                 },
                 "SQL": {
-                    "logs": ["sql_connector.py.log", "steal_data_sql.py.log"],
+                    "logs": ["sql_bruteforce.py.log", "steal_data_sql.py.log"],
                     "label": "SQL (Brute Force + Data Stealer)"
                 }
             }
@@ -1638,6 +1862,27 @@ method=auto
                         "logs": cat_logs
                     })
 
+            # Add vuln scan result files from vulnerabilities directory
+            vuln_dir = self.shared_data.vulnerabilities_dir
+            if os.path.exists(vuln_dir):
+                vuln_logs = []
+                for entry in sorted(os.scandir(vuln_dir), key=lambda e: e.name):
+                    if entry.is_file() and entry.name.endswith('_vuln_scan.txt'):
+                        size = entry.stat().st_size
+                        if size < 1024:
+                            size_str = f"{size} B"
+                        elif size < 1024 * 1024:
+                            size_str = f"{size // 1024} KB"
+                        else:
+                            size_str = f"{size // (1024 * 1024)} MB"
+                        vuln_logs.append({"name": entry.name, "size": size_str, "path": f"vuln:{entry.name}"})
+                if vuln_logs:
+                    result["categories"].append({
+                        "id": "VulnResults",
+                        "label": "Vulnerability Scan Results",
+                        "logs": vuln_logs
+                    })
+
             # Find any uncategorized logs
             if os.path.exists(logs_dir):
                 for entry in sorted(os.scandir(logs_dir), key=lambda e: e.name):
@@ -1661,9 +1906,13 @@ method=auto
         """Download a specific log file."""
         try:
             query = unquote(handler.path.split('?name=')[1])
-            # Sanitize - only allow filenames, no path traversal
-            filename = os.path.basename(query)
-            file_path = os.path.join(self.shared_data.logsdir, filename)
+            # Vuln result files use "vuln:" prefix to distinguish from log files
+            if query.startswith('vuln:'):
+                filename = os.path.basename(query[5:])
+                file_path = os.path.join(self.shared_data.vulnerabilities_dir, filename)
+            else:
+                filename = os.path.basename(query)
+                file_path = os.path.join(self.shared_data.logsdir, filename)
             if os.path.isfile(file_path):
                 handler.send_response(200)
                 handler.send_header("Content-Type", "text/plain; charset=utf-8")

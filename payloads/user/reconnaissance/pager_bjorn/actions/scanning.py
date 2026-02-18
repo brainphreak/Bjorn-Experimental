@@ -662,8 +662,12 @@ class NetworkScanner:
         start_time = time.time()
         self.logger.lifecycle_start("NetworkScanner")
         try:
+            # Refresh blacklists from shared_data (may have changed since init)
+            self.blacklistcheck = self.shared_data.blacklistcheck
+            self.mac_scan_blacklist = self.shared_data.mac_scan_blacklist
+            self.ip_scan_blacklist = self.shared_data.ip_scan_blacklist
             self.shared_data.bjornorch_status = "NetworkScanner"
-            self.logger.info(f"Starting Network Scanner")
+            self.logger.info(f"Starting Network Scanner (IP blacklist: {self.ip_scan_blacklist})")
             # Use specified network or auto-detect
             if target_network:
                 import ipaddress

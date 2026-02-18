@@ -790,6 +790,13 @@ select.form-input {
     flex: 1;
     min-width: 100px;
 }
+.custom-target-row input {
+    flex: 1;
+    min-width: 100px;
+}
+.custom-target-row .btn {
+    flex-shrink: 0;
+}
 
 .attack-log {
     background: #0d0b08;
@@ -800,7 +807,10 @@ select.form-input {
     line-height: 1.5;
     white-space: pre-wrap;
     overflow-y: auto;
-    max-height: 200px;
+    height: 300px;
+    min-height: 100px;
+    max-height: 80vh;
+    resize: vertical;
     display: none;
 }
 .attack-log.visible {
@@ -1029,6 +1039,9 @@ select.form-input {
     grid-template-columns: 1fr;
     gap: 10px;
 }
+.form-group-full {
+    grid-column: 1 / -1;
+}
 
 /* ========================================
    Terminal
@@ -1161,6 +1174,127 @@ select.form-input {
     padding: 32px 16px;
     color: var(--text-muted);
     font-size: 13px;
+}
+
+/* --- Vulnerability Table --- */
+.vuln-header {
+    padding: 8px 10px;
+    margin-bottom: 8px;
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+.vuln-stat {
+    color: var(--gold);
+    font-weight: bold;
+}
+.vuln-row.clickable {
+    cursor: pointer;
+}
+.vuln-row.clickable:hover td {
+    background: var(--bg-elevated);
+}
+.vuln-row .toggle-icon {
+    color: var(--text-muted);
+    font-size: 10px;
+    margin-right: 4px;
+}
+.vuln-detail-row td {
+    padding: 0 !important;
+    border-bottom: 2px solid var(--border-light);
+}
+.vuln-detail-content {
+    padding: 10px;
+    background: var(--bg-card);
+}
+.vuln-list {
+    margin-bottom: 8px;
+}
+.vuln-item {
+    padding: 4px 8px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    border-left: 2px solid var(--border);
+    margin-bottom: 2px;
+}
+.vuln-item.vuln-cve {
+    border-left-color: var(--gold);
+    color: var(--text-primary);
+}
+.nmap-output {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px;
+    font-size: 11px;
+    font-family: monospace;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 400px;
+    overflow-y: auto;
+    color: var(--text-secondary);
+}
+.vuln-finding {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--gold);
+    border-radius: 4px;
+    padding: 10px;
+    margin-bottom: 8px;
+}
+.vuln-finding .vuln-port {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+    font-family: monospace;
+}
+.vuln-finding .vuln-title {
+    font-size: 13px;
+    font-weight: bold;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+.vuln-finding .vuln-state {
+    font-size: 11px;
+    font-weight: bold;
+    margin-bottom: 6px;
+}
+.vuln-finding .vuln-state.vuln-confirmed {
+    color: #e74c3c;
+}
+.vuln-finding .vuln-state.vuln-likely {
+    color: #f39c12;
+}
+.vuln-finding .vuln-cves {
+    margin-bottom: 6px;
+}
+.vuln-cve-tag {
+    display: inline-block;
+    background: rgba(212, 175, 55, 0.15);
+    border: 1px solid var(--gold);
+    border-radius: 3px;
+    padding: 1px 6px;
+    font-size: 11px;
+    font-family: monospace;
+    color: var(--gold);
+    margin-right: 4px;
+}
+.vuln-finding .vuln-desc {
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+    margin-bottom: 4px;
+}
+.vuln-finding .vuln-date {
+    font-size: 10px;
+    color: var(--text-secondary);
+    opacity: 0.7;
+}
+.loading {
+    text-align: center;
+    padding: 16px;
+    color: var(--text-muted);
+    font-size: 12px;
 }
 
 /* ========================================

@@ -1,11 +1,12 @@
 /* ========================================
-   Loot Tab - Credentials + Files + Logs
+   Loot Tab - Credentials + Files + Vulns + Logs
    ======================================== */
 'use strict';
 
 const LootTab = {
     activeSubTab: 'credentials',
     expandedPaths: new Set(),
+    expandedVulnIPs: new Set(),
 
     init() {
         const panel = document.getElementById('tab-loot');
@@ -14,10 +15,12 @@ const LootTab = {
                 <div class="sub-tabs">
                     <button class="sub-tab active" data-sub="credentials">Credentials</button>
                     <button class="sub-tab" data-sub="files">Stolen Files</button>
+                    <button class="sub-tab" data-sub="vulns">Vulnerabilities</button>
                     <button class="sub-tab" data-sub="logs">Attack Logs</button>
                 </div>
                 <div id="loot-credentials" class="sub-panel active"></div>
                 <div id="loot-files" class="sub-panel"></div>
+                <div id="loot-vulns" class="sub-panel"></div>
                 <div id="loot-logs" class="sub-panel"></div>
             </div>
         `;
@@ -46,6 +49,10 @@ const LootTab = {
         switch (this.activeSubTab) {
             case 'credentials': return this.loadCredentials();
             case 'files': return this.loadFiles();
+            case 'vulns':
+                // Skip auto-refresh when a vuln detail is expanded to prevent collapse
+                if (!this.expandedVulnIPs.size) return this.loadVulnerabilities();
+                return;
             case 'logs': return this.loadLogs();
         }
     },
@@ -136,6 +143,135 @@ const LootTab = {
                 node.classList.add('expanded');
             }
         });
+    },
+
+    /* --- Vulnerabilities --- */
+    async loadVulnerabilities() {
+        try {
+            const data = await App.api('/api/vulnerabilities');
+            const container = document.getElementById('loot-vulns');
+            const summary = data.summary || [];
+
+            if (!summary.length) {
+                container.innerHTML = '<div class="empty-state">No vulnerabilities found yet. Run a vuln scan from the Attacks tab.</div>';
+                return;
+            }
+
+            let html = '<div class="vuln-header">' +
+                '<span class="vuln-stat">' + data.total_count + ' unique vulnerabilities across ' + data.hosts_scanned + ' hosts</span>' +
+                '</div>';
+            html += '<table class="data-table vuln-table"><thead><tr>' +
+                '<th>IP</th><th>Hostname</th><th>Ports</th><th>Vulnerabilities</th>' +
+                '</tr></thead><tbody>';
+
+            summary.forEach(entry => {
+                const vulnList = entry.vulnerabilities.split('; ').filter(v => v.trim());
+                const isExpanded = this.expandedVulnIPs.has(entry.ip);
+                const toggleIcon = isExpanded ? '&#9660;' : '&#9654;';
+
+                html += '<tr class="vuln-row clickable" onclick="LootTab.toggleVulnDetail(\'' + entry.ip + '\')">' +
+                    '<td><span class="toggle-icon">' + toggleIcon + '</span> ' + entry.ip + '</td>' +
+                    '<td>' + (entry.hostname || '-') + '</td>' +
+                    '<td>' + (entry.port || '-') + '</td>' +
+                    '<td>' + vulnList.length + ' finding' + (vulnList.length !== 1 ? 's' : '') + '</td>' +
+                    '</tr>';
+
+                // Expandable detail row
+                html += '<tr class="vuln-detail-row" id="vuln-detail-' + entry.ip.replace(/\./g, '-') + '" style="display:' + (isExpanded ? 'table-row' : 'none') + ';">' +
+                    '<td colspan="4"><div class="vuln-detail-content">';
+
+                // Show vulnerability list
+                html += '<div class="vuln-list">';
+                vulnList.forEach(v => {
+                    const isCVE = v.includes('CVE-');
+                    html += '<div class="vuln-item' + (isCVE ? ' vuln-cve' : '') + '">' + this.escapeHtml(v) + '</div>';
+                });
+                html += '</div>';
+
+                // Nmap detail container (loaded on demand)
+                html += '<div class="vuln-nmap-output" id="vuln-nmap-' + entry.ip.replace(/\./g, '-') + '"></div>';
+                html += '</div></td></tr>';
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        } catch (e) {
+            document.getElementById('loot-vulns').innerHTML = '<div class="empty-state">Error loading vulnerabilities.</div>';
+        }
+    },
+
+    async toggleVulnDetail(ip) {
+        const safeId = ip.replace(/\./g, '-');
+        const detailRow = document.getElementById('vuln-detail-' + safeId);
+        const detailContainer = document.getElementById('vuln-nmap-' + safeId);
+
+        if (!detailRow) return;
+
+        const isHidden = detailRow.style.display === 'none';
+        detailRow.style.display = isHidden ? 'table-row' : 'none';
+
+        if (isHidden) {
+            this.expandedVulnIPs.add(ip);
+            if (detailContainer && !detailContainer.dataset.loaded) {
+                detailContainer.innerHTML = '<div class="loading">Loading...</div>';
+                try {
+                    const data = await App.api('/api/vulnerabilities/' + ip);
+                    if (data && data.findings && data.findings.length) {
+                        let html = '';
+                        data.findings.forEach(f => {
+                            const stateClass = f.state === 'VULNERABLE' ? 'vuln-confirmed' : 'vuln-likely';
+                            html += '<div class="vuln-finding">';
+                            // Port and service
+                            if (f.port && f.port !== 'host') {
+                                html += '<div class="vuln-port">' + this.escapeHtml(f.port) + (f.service ? ' (' + this.escapeHtml(f.service) + ')' : '') + '</div>';
+                            }
+                            // Title
+                            if (f.title) {
+                                html += '<div class="vuln-title">' + this.escapeHtml(f.title) + '</div>';
+                            }
+                            // State + Risk
+                            html += '<div class="vuln-state ' + stateClass + '">' + this.escapeHtml(f.state);
+                            if (f.risk) html += ' &mdash; Risk: ' + this.escapeHtml(f.risk);
+                            html += '</div>';
+                            // CVEs
+                            if (f.cves && f.cves.length) {
+                                html += '<div class="vuln-cves">' + f.cves.map(c => '<span class="vuln-cve-tag">' + this.escapeHtml(c) + '</span>').join(' ') + '</div>';
+                            }
+                            // Description
+                            if (f.description) {
+                                html += '<div class="vuln-desc">' + this.escapeHtml(f.description) + '</div>';
+                            }
+                            // Disclosure date
+                            if (f.disclosure_date) {
+                                html += '<div class="vuln-date">Disclosed: ' + this.escapeHtml(f.disclosure_date) + '</div>';
+                            }
+                            html += '</div>';
+                        });
+                        detailContainer.innerHTML = html;
+                    } else {
+                        detailContainer.innerHTML = '<div class="empty-state">No structured findings. Run a new vuln scan to generate details.</div>';
+                    }
+                } catch (e) {
+                    detailContainer.innerHTML = '<div class="empty-state">Error loading detail.</div>';
+                }
+                detailContainer.dataset.loaded = '1';
+            }
+        } else {
+            this.expandedVulnIPs.delete(ip);
+        }
+
+        // Update toggle icon in parent row
+        const parentRow = detailRow.previousElementSibling;
+        if (parentRow) {
+            const icon = parentRow.querySelector('.toggle-icon');
+            if (icon) icon.innerHTML = isHidden ? '&#9660;' : '&#9654;';
+        }
+    },
+
+    escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
     },
 
     /* --- Attack Logs --- */

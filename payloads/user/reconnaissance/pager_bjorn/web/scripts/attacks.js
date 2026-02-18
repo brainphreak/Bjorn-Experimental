@@ -29,6 +29,10 @@ var AttacksTab = {
             '<select class="form-input" id="atk-network" title="Network"></select>' +
             '<select class="form-input" id="atk-ip" title="Target IP"></select>' +
             '</div>' +
+            '<div class="manual-row custom-target-row">' +
+            '<input class="form-input" id="atk-custom-target" placeholder="IP or hostname">' +
+            '<button class="btn" id="atk-add-target">Add Target</button>' +
+            '</div>' +
             '<div class="manual-row">' +
             '<select class="form-input" id="atk-port" title="Port"></select>' +
             '<select class="form-input" id="atk-action" title="Action"></select>' +
@@ -48,14 +52,23 @@ var AttacksTab = {
         document.getElementById('atk-execute').addEventListener('click', () => this.executeAttack());
         document.getElementById('atk-stop').addEventListener('click', () => this.stopAttack());
         document.getElementById('atk-clear-hosts').addEventListener('click', () => this.clearHosts());
+        document.getElementById('atk-add-target').addEventListener('click', () => this.addTarget());
+        document.getElementById('atk-custom-target').addEventListener('keydown', (e) => { if (e.key === 'Enter') this.addTarget(); });
         document.getElementById('atk-ip').addEventListener('change', () => this.updatePortDropdown());
         document.getElementById('atk-port').addEventListener('change', () => this.onPortSelected());
     },
 
     activate() {
         this.syncManualModeState();
-        this.loadOptions();
+        this.loadOptions(true);
         App.startPolling('attacks', () => this.refreshTimeline(), 15000);
+    },
+
+    // Action name mapping for display
+    attackDisplayNames: {
+        'NetworkScanner': 'Network Scan',
+        'PortScanner': 'Port Scan',
+        'NmapVulnScanner': 'Vuln Scan'
     },
 
     deactivate() {
@@ -72,6 +85,20 @@ var AttacksTab = {
             } else if (!serverManual && this.isManualMode && !this.isAttackRunning) {
                 this.isManualMode = false;
                 this.applyManualModeUI(false);
+            }
+
+            // Recover running attack state after browser refresh
+            if (data && data.manual_attack_running && !this.isAttackRunning) {
+                var actionName = this.attackDisplayNames[data.manual_attack_name] || data.manual_attack_name || 'Attack';
+                this.isAttackRunning = true;
+                this.currentActionName = actionName;
+                this.isManualMode = true;
+                this.applyManualModeUI(true);
+                this.setStatus('Running: ' + actionName, 'running');
+                document.getElementById('atk-execute').style.display = 'none';
+                document.getElementById('atk-stop').style.display = '';
+                this.startAttackLog();
+                this.waitForCompletion(actionName);
             }
         } catch (e) {}
     },
@@ -121,14 +148,19 @@ var AttacksTab = {
         }
     },
 
-    async loadOptions() {
+    async loadOptions(preserve) {
         try {
             var nets = await App.api('/get_networks');
             var netDrop = document.getElementById('atk-network');
+            var prevNet = preserve ? netDrop.value : null;
             if (nets.networks && nets.networks.length) {
                 netDrop.innerHTML = nets.networks.map(n =>
                     '<option value="' + n.network + '">' + n.display + '</option>'
                 ).join('');
+                if (prevNet) {
+                    var opt = netDrop.querySelector('option[value="' + prevNet + '"]');
+                    if (opt) netDrop.value = prevNet;
+                }
             } else {
                 netDrop.innerHTML = '<option value="">No networks</option>';
             }
@@ -145,7 +177,11 @@ var AttacksTab = {
             var prevIp = ipDrop.value;
             if (data.ips && data.ips.length) {
                 ipDrop.innerHTML = '<option value="network_scan">Scan Network</option>' +
-                    data.ips.map(ip => '<option value="' + ip + '">' + ip + '</option>').join('');
+                    data.ips.map(function(key) {
+                        var parts = key.split('::');
+                        var display = parts[1] ? parts[0] + ' (' + parts[1] + ')' : parts[0];
+                        return '<option value="' + key + '">' + display + '</option>';
+                    }).join('');
                 // Restore previous selection if still available, otherwise select first IP
                 if (prevIp && data.ips.indexOf(prevIp) >= 0) {
                     ipDrop.value = prevIp;
@@ -156,18 +192,23 @@ var AttacksTab = {
                 ipDrop.innerHTML = '<option value="network_scan">Scan Network (find hosts)</option>';
             }
 
-            this.populateActions();
-            this.updatePortDropdown();
+            this.populateActions(preserve);
+            this.updatePortDropdown(preserve);
         } catch (e) {}
     },
 
-    populateActions() {
+    populateActions(preserve) {
         var drop = document.getElementById('atk-action');
+        var prevAction = preserve ? drop.value : null;
         if (this.netkbData && this.netkbData.actions) {
             drop.innerHTML = this.netkbData.actions.map(a => {
                 var name = this.actionDisplayNames[a] || a;
                 return '<option value="' + a + '">' + name + '</option>';
-            }).join('');
+            }).join('') + '<option value="NmapVulnScanner">Vuln Scan</option>';
+        }
+        if (prevAction) {
+            var opt = drop.querySelector('option[value="' + prevAction + '"]');
+            if (opt) drop.value = prevAction;
         }
     },
 
@@ -179,10 +220,11 @@ var AttacksTab = {
         if (actions && actions.length) actionDrop.value = actions[0];
     },
 
-    updatePortDropdown() {
+    updatePortDropdown(preserve) {
         var ip = document.getElementById('atk-ip').value;
         var portDrop = document.getElementById('atk-port');
         var actionDrop = document.getElementById('atk-action');
+        var prevPort = preserve ? portDrop.value : null;
 
         if (ip === 'network_scan' || !ip) {
             portDrop.innerHTML = '<option value="">N/A</option>';
@@ -190,7 +232,7 @@ var AttacksTab = {
             return;
         }
 
-        if (actionDrop.value === '') this.populateActions();
+        if (actionDrop.value === '') this.populateActions(preserve);
 
         var protocols = {
             '21': 'FTP', '22': 'SSH', '23': 'Telnet', '80': 'HTTP',
@@ -211,7 +253,17 @@ var AttacksTab = {
         portDrop.innerHTML = ports.map(p => {
             var proto = protocols[p] || '';
             return '<option value="' + p + '">' + p + (proto ? ' (' + proto + ')' : '') + '</option>';
-        }).join('') + '<option value="port_scan">Rescan Ports</option>';
+        }).join('') + '<option value="all_ports">All Open Ports</option>' +
+            '<option value="port_scan">Rescan Ports</option>';
+
+        // Restore previous port selection if still available
+        if (prevPort) {
+            var opt = portDrop.querySelector('option[value="' + prevPort + '"]');
+            if (opt) {
+                portDrop.value = prevPort;
+                return; // Don't auto-select action — user already chose
+            }
+        }
 
         this.onPortSelected();
     },
@@ -222,23 +274,33 @@ var AttacksTab = {
             return;
         }
 
-        var ip = document.getElementById('atk-ip').value;
+        var ipRaw = document.getElementById('atk-ip').value;
         var port = document.getElementById('atk-port').value;
         var action = document.getElementById('atk-action').value;
         var network = document.getElementById('atk-network').value;
 
-        if (ip === 'network_scan' || !ip) {
+        // Parse ip::hostname encoding for vhost support
+        var ipParts = ipRaw.split('::');
+        var ip = ipParts[0];
+        var hostname = ipParts[1] || '';
+
+        if (ipRaw === 'network_scan' || !ipRaw) {
             return this.runAttack({ ip: '', port: '', action: 'NetworkScanner', network: network }, 'Network Scan');
         }
         if (port === 'port_scan') {
             return this.runAttack({ ip: ip, port: '', action: 'PortScanner' }, 'Port Scan');
+        }
+        if (action === 'NmapVulnScanner') {
+            var vulnPort = (port && port !== 'port_scan' && port !== 'all_ports') ? port : '';
+            var label = vulnPort ? 'Vuln Scan :' + vulnPort : 'Vuln Scan';
+            return this.runAttack({ ip: ip, port: vulnPort, action: 'NmapVulnScanner', hostname: hostname }, label);
         }
         if (!port || !action) {
             App.toast('Select a port and action', 'error');
             return;
         }
         var displayName = this.actionDisplayNames[action] || action;
-        return this.runAttack({ ip: ip, port: port, action: action }, displayName);
+        return this.runAttack({ ip: ip, port: port, action: action, hostname: hostname }, displayName);
     },
 
     async runAttack(params, actionName) {
@@ -251,7 +313,7 @@ var AttacksTab = {
 
         // Scans run in a background thread — POST returns immediately, need to poll for completion.
         // Regular attacks run synchronously — POST blocks until done, no polling needed.
-        var isAsync = params.action === 'NetworkScanner' || params.action === 'PortScanner';
+        var isAsync = params.action === 'NetworkScanner' || params.action === 'PortScanner' || params.action === 'NmapVulnScanner';
 
         try {
             await App.post('/mark_action_start');
@@ -280,7 +342,7 @@ var AttacksTab = {
         document.getElementById('atk-execute').style.display = '';
         document.getElementById('atk-stop').style.display = 'none';
         this.setStatus('Manual Mode', 'idle');
-        this.loadOptions();
+        this.loadOptions(true);
         this.refreshTimeline();
         if (message) {
             App.toast(message, success ? 'success' : 'error');
@@ -355,6 +417,25 @@ var AttacksTab = {
                 self.attackFinished(false, actionName + ' timed out');
             }
         }, 600000);
+    },
+
+    async addTarget() {
+        var input = document.getElementById('atk-custom-target');
+        var target = input.value.trim();
+        if (!target) return;
+        try {
+            var result = await App.post('/add_manual_target', {target: target});
+            input.value = '';
+            App.toast('Target added: ' + (result.ip || target), 'success');
+            await this.loadOptions();
+            if (result.ip) {
+                var key = result.hostname ? result.ip + '::' + result.hostname : result.ip;
+                document.getElementById('atk-ip').value = key;
+                this.updatePortDropdown();
+            }
+        } catch (e) {
+            App.toast('Failed: ' + e.message, 'error');
+        }
     },
 
     async clearHosts() {

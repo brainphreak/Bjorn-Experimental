@@ -182,8 +182,8 @@ const ConsoleTab = {
     matchesFilter(line) {
         switch (this.levelFilter) {
             case 'ERROR': return line.includes(' ERROR ');
-            case 'WARNING': return line.includes(' WARNING ') || line.includes(' ERROR ');
-            case 'INFO': return !line.includes(' DEBUG ');
+            case 'WARNING': return line.includes(' WARNING ');
+            case 'INFO': return line.includes(' INFO ');
             default: return true;
         }
     },

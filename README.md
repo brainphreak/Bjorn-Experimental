@@ -9,6 +9,7 @@ A port/rewrite of [Bjorn](https://github.com/infinition/Bjorn) - the autonomous 
 Bjorn is a Tamagotchi-style autonomous network reconnaissance companion. It automatically:
 
 - **Scans networks** for live hosts and open ports
+- **Scans for vulnerabilities** using nmap NSE scripts with batched HTTP scanning
 - **Brute forces** discovered services (FTP, SSH, Telnet, SMB, RDP, MySQL)
 - **Exfiltrates data** when credentials are found
 - **Displays status** with cute Viking animations
@@ -20,6 +21,9 @@ Bjorn is a Tamagotchi-style autonomous network reconnaissance companion. It auto
 - **Network Discovery** - ARP scanning with ICMP ping fallback for alive host detection
 - **Hostname Resolution** - Multiple fallback methods (reverse DNS, NetBIOS, mDNS, nmap)
 - **Port Scanning** - Configurable port list with nmap integration
+- **Vulnerability Scanning** - Nmap NSE script-based vuln scanning with batched HTTP checks optimized for MIPS
+- **Manual Target Entry** - Add any IP or hostname as a target, including external hosts not on the local network
+- **Virtual Host Support** - Scan multiple hostnames on the same IP with proper HTTP `Host:` header handling
 - **Credential Brute Force** - Dictionary attacks against discovered services
 - **Guest/Anonymous Detection** - Detects and logs guest access, skips brute force to avoid false positives
 - **File Exfiltration** - Automatically steals sensitive files from compromised hosts
@@ -106,7 +110,7 @@ Access the web UI at `http://<pager-ip>:8000`. It is a single-page app with the 
 |-----|-------------|
 | **Dashboard** | Orchestrator status, live stats grid (targets, credentials, attacks, vulns, ports, data stolen, zombies, level, gold, netKB), and integrated log console with level filters (ALL/INFO/WARN/ERROR), auto-scroll, and incremental log fetching |
 | **Network** | Host cards with color-coded status (green=alive, red=dead, gold=pwned) and per-protocol attack badges showing brute force and file steal results for each host |
-| **Attacks** | Attack timeline with chronological history. Manual mode toggle with target/port/action dropdowns, execute and stop buttons, running status indicator, and live attack log output |
+| **Attacks** | Attack timeline with chronological history. Manual mode with target/port/action dropdowns, custom target input (any IP or hostname), execute and stop buttons, running status indicator, and live attack log output. Vulnerability scanning available per-port or across all open ports |
 | **Loot** | Three sub-tabs: Credentials (grouped by protocol), Stolen Files (collapsible tree with download links), and Attack Logs (categorized per-module log files with download links) |
 | **Config** | All settings from `shared_config.json` rendered as a form with collapsible sections, toggle switches, and save/restore buttons |
 | **Terminal** | Execute commands directly on the device with command history (up/down arrows, persisted in session) |
@@ -203,7 +207,7 @@ Customize brute force wordlists in `resources/dictionary/`:
 |----------|------|------|-------------|
 | Row 1, Left | Target | `target` | Alive hosts found |
 | Row 1, Middle | Folder | `port` | Open ports discovered |
-| Row 1, Right | Stack | `vuln` | Vulnerabilities found (TODO - not yet implemented) |
+| Row 1, Right | Stack | `vuln` | Vulnerabilities found |
 | Row 2, Left | Lock | `cred` | Credentials cracked |
 | Row 2, Middle | Skull | `zombie` | Compromised hosts |
 | Row 2, Right | File | `data` | Data files stolen |
@@ -223,6 +227,7 @@ Bjorn processes hosts one at a time, running all applicable attacks before movin
 
 1. **Network Scan** - Discover alive hosts and open ports
 2. **For each host:**
+   - Run vulnerability scan (nmap NSE scripts) on open ports
    - Run all brute force attacks (SSH, FTP, SMB, Telnet, SQL, RDP)
    - Run all file stealing actions for successful brute forces
    - Move to the next host
@@ -296,6 +301,7 @@ pager_bjorn/
 │   └── ...
 ├── actions/           # Attack modules
 │   ├── scanning.py    # Network scanner
+│   ├── nmap_vuln_scanner.py  # Vulnerability scanner (batched NSE)
 │   ├── ftp_connector.py
 │   ├── ssh_connector.py
 │   ├── telnet_connector.py
@@ -380,11 +386,38 @@ A Docker-based vulnerable test environment is provided in `test_targets/`. See [
 
 ---
 
-## TODO / Roadmap
+## Manual Attack Mode
 
-Features planned but not yet implemented:
+Manual mode pauses the orchestrator and gives you full control over individual attacks from the web UI.
 
-- **Vulnerability Scanner** - Nmap vuln script integration exists but is disabled. Requires extensive testing before enabling.
+### Adding Custom Targets
+
+The Attacks tab includes a text input for adding any IP address or hostname as a target:
+
+- **IP address** (e.g., `10.0.0.50`) - Added directly to the target list
+- **Hostname** (e.g., `example.com`) - Resolved to IPv4 and added with hostname metadata
+- Manual entries get `MAC Address = manual` to distinguish them from network-scanned hosts
+
+### Virtual Host (vhost) Scanning
+
+Multiple hostnames on the same IP are supported. Each hostname gets its own entry in the target list:
+
+1. Add `site1.com` - resolves to `93.184.216.34`, shown as `93.184.216.34 (site1.com)`
+2. Add `site2.com` - same IP, new entry shown as `93.184.216.34 (site2.com)`
+3. Port scan either one - ports are shared across all entries for the same IP
+4. Vuln scan `site1.com` - nmap sends `Host: site1.com` header for HTTP scripts
+5. Vuln scan `site2.com` - nmap sends `Host: site2.com` header for HTTP scripts
+
+This ensures HTTP vulnerability scripts hit the correct virtual host instead of just the server's default site.
+
+### Vulnerability Scanning
+
+Select a target IP, choose a port (or "All Open Ports"), and select "Vuln Scan" from the action dropdown:
+
+- **Single port** - Scans only that port for vulnerabilities
+- **All Open Ports** - Scans every open port on the host
+
+HTTP ports (80, 443, 8080, 8443) use batched NSE scripts optimized for MIPS to avoid CPU starvation. Non-HTTP ports use `--script vuln` in a single pass.
 
 ---
 

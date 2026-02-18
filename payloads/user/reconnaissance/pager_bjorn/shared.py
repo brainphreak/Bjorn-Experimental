@@ -116,51 +116,45 @@ class SharedData:
     def get_default_config(self):
         """Pager-specific default configuration."""
         return {
-            "__title_Bjorn__": "Settings",
-            "manual_mode": True,           # Start in manual mode on Pager
-            "websrv": False,               # No web server on Pager
-            "web_increment": False,
-            "debug_mode": True,
-            "scan_vuln_running": False,
+            "__title_attacks__": "Attack Settings",
+            "manual_mode": True,
+            "clear_hosts_on_startup": False,
+            "brute_force_running": True,
+            "file_steal_running": True,
+            "scan_vuln_running": True,
+            "attack_order": "spread",
+
+            "__title_retry__": "Retry Settings",
             "retry_success_actions": False,
             "retry_failed_actions": True,
-            "blacklistcheck": True,
-            "blacklist_gateway": True,
-            "displaying_csv": True,
-            "log_debug": True,
-            "log_info": True,
-            "log_warning": True,
-            "log_error": True,
-            "log_critical": True,
-
-            "startup_delay": 5,            # Faster startup
-            "web_delay": 2,
-            "screen_delay": 0.033,         # ~30 FPS for LCD
-            "comment_delaymin": 15,
-            "comment_delaymax": 30,
-            "livestatus_delay": 8,
-            "image_display_delaymin": 2,
-            "image_display_delaymax": 8,
-            "scan_interval": 300,          # 5 min scans (battery friendly)
-            "scan_vuln_interval": 900,     # 15 min vuln scans
-            "clear_hosts_on_startup": False, # Only clear hosts via Clear Hosts button
             "failed_retry_delay": 600,
-            "max_failed_retries": 3,       # Give up after this many failures
             "success_retry_delay": 900,
 
-            "__title_lists__": "List Settings",
-            "portlist": [20, 21, 22, 23, 25, 53, 69, 80, 110, 111, 135, 137, 139, 143, 161, 162, 389, 443, 445, 512, 513, 514, 587, 636, 993, 995, 1080, 1433, 1521, 2049, 3306, 3389, 5000, 5001, 5432, 5900, 8080, 8443, 9090, 10000],
-            "mac_scan_blacklist": [],
-            "ip_scan_blacklist": [],
-            "steal_file_names": ["ssh.csv", "hack.txt"],
-            "steal_file_extensions": [".bjorn", ".hack", ".flag"],
-
-            "__title_network__": "Network",
+            "__title_network__": "Network & Scanning",
+            "scan_interval": 300,
             "nmap_scan_aggressivity": "-T2",
+            "vuln_scan_timeout": 120,
             "portstart": 1,
             "portend": 2,
+            "portlist": [20, 21, 22, 23, 25, 53, 69, 80, 110, 111, 135, 137, 139, 143, 161, 162, 389, 443, 445, 512, 513, 514, 587, 636, 993, 995, 1080, 1433, 1521, 2049, 3306, 3389, 5000, 5001, 5432, 5900, 8080, 8443, 9090, 10000],
+            "blacklistcheck": True,
+            "blacklist_gateway": True,
+            "mac_scan_blacklist": [],
+            "ip_scan_blacklist": [],
 
-            "__title_timewaits__": "Time Wait Settings",
+            "__title_stealing__": "File Stealing",
+            "steal_file_names": ["ssh.csv", "hack.txt"],
+            "steal_file_extensions": [".bjorn", ".hack", ".flag"],
+            "steal_max_depth": 3,
+            "steal_max_files": 500,
+
+            "__title_timing__": "Delay Settings",
+            "startup_delay": 5,
+            "web_delay": 2,
+            "comment_delaymin": 15,
+            "comment_delaymax": 30,
+            "image_display_delaymin": 2,
+            "image_display_delaymax": 8,
             "timewait_smb": 0,
             "timewait_ssh": 0,
             "timewait_telnet": 0,
@@ -168,17 +162,26 @@ class SharedData:
             "timewait_sql": 0,
             "timewait_rdp": 0,
 
-            "__title_stealing__": "File Stealing Settings",
-            "steal_max_depth": 3,   # Max directory depth when enumerating files
-            "steal_max_files": 500, # Max files to enumerate per share
+            "__title_performance__": "Performance",
+            "worker_threads": 5,
+            "max_failed_retries": 3,
+            "bruteforce_queue_timeout": 600,
+            "displaying_csv": True,
 
-            "__title_performance__": "Performance Settings",
-            "worker_threads": 5,  # Number of concurrent worker threads for brute force (reduce for low-memory devices)
-            "bruteforce_queue_timeout": 600,  # Max seconds to wait for bruteforce queue processing per host
+            "__title_logging__": "Logging",
+            "log_debug": False,
+            "log_info": True,
+            "log_warning": True,
+            "log_error": True,
+            "log_critical": True,
         }
 
     def update_mac_blacklist(self):
-        """Update the MAC and IP blacklists with this device's addresses."""
+        """Update MAC blacklist and build effective IP blacklist.
+
+        The persisted ip_scan_blacklist in config is user-managed only.
+        Device IPs and gateway are added at runtime and not saved to config.
+        """
         # Update MAC blacklist
         mac_address = self.get_device_mac()
         if mac_address:
@@ -188,37 +191,34 @@ class SharedData:
             if mac_address not in self.config['mac_scan_blacklist']:
                 self.config['mac_scan_blacklist'].append(mac_address)
                 logger.info(f"Added local MAC address {mac_address} to blacklist")
-            else:
-                logger.info(f"Local MAC address {mac_address} already in blacklist")
         else:
             logger.warning("Could not add local MAC to blacklist: MAC address not found")
 
-        # Update IP blacklist (important for self-detection since ARP doesn't work on self)
+        # Build effective IP blacklist: user's manual list + auto-detected device IPs + gateway
+        effective = list(self.config.get('ip_scan_blacklist', []))
+
+        # Auto-detect this device's IPs (runtime only, not persisted)
         device_ips = self.get_device_ips()
-        if device_ips:
-            if 'ip_scan_blacklist' not in self.config:
-                self.config['ip_scan_blacklist'] = []
+        for ip in device_ips:
+            if ip not in effective:
+                effective.append(ip)
+                logger.info(f"Auto-blacklisted device IP {ip}")
 
-            for ip in device_ips:
-                if ip not in self.config['ip_scan_blacklist']:
-                    self.config['ip_scan_blacklist'].append(ip)
-                    logger.info(f"Added local IP address {ip} to blacklist")
-
-        # Auto-blacklist the default gateway (don't attack the router we're connected through)
+        # Conditionally add gateway based on toggle (runtime only, not persisted)
         if self.config.get('blacklist_gateway', True):
             gateway_ip = self.get_gateway_ip()
             if gateway_ip:
-                if 'ip_scan_blacklist' not in self.config:
-                    self.config['ip_scan_blacklist'] = []
-                if gateway_ip not in self.config['ip_scan_blacklist']:
-                    self.config['ip_scan_blacklist'].append(gateway_ip)
-                    logger.info(f"Added gateway IP {gateway_ip} to blacklist")
-                else:
-                    logger.debug(f"Gateway IP {gateway_ip} already in blacklist")
+                if gateway_ip not in effective:
+                    effective.append(gateway_ip)
+                    logger.info(f"Auto-blacklisted gateway IP {gateway_ip}")
             else:
                 logger.warning("Could not detect gateway IP for blacklist")
         else:
             logger.info("Gateway blacklisting disabled by config")
+
+        # Set effective blacklist (this is what scanning.py snapshots at init)
+        self.ip_scan_blacklist = effective
+        logger.info(f"Effective IP blacklist: {effective}")
 
     def get_gateway_ip(self):
         """Get the default gateway IP address."""
@@ -481,6 +481,53 @@ class SharedData:
         except Exception as e:
             logger.error(f"Unexpected error in initialize_csv: {e}")
 
+    @staticmethod
+    def _expand_port_list(raw):
+        """Expand a port list that may contain ranges like '1-1024' or ints."""
+        ports = []
+        for item in raw:
+            s = str(item).strip()
+            if '-' in s:
+                parts = s.split('-', 1)
+                try:
+                    lo, hi = int(parts[0]), int(parts[1])
+                    ports.extend(range(lo, hi + 1))
+                except ValueError:
+                    pass
+            else:
+                try:
+                    ports.append(int(s))
+                except ValueError:
+                    pass
+        return ports
+
+    def _apply_log_levels(self):
+        """Apply log_debug/info/warning/error/critical toggles to all loggers."""
+        import logging as _logging
+        from logger import Logger as BjornLogger
+        level_map = [
+            ('log_debug', _logging.DEBUG),
+            ('log_info', _logging.INFO),
+            ('log_warning', _logging.WARNING),
+            ('log_error', _logging.ERROR),
+            ('log_critical', _logging.CRITICAL),
+        ]
+        # Find the lowest enabled level
+        min_level = _logging.CRITICAL + 1
+        for key, level in level_map:
+            if getattr(self, key, True):
+                min_level = min(min_level, level)
+        if min_level > _logging.CRITICAL:
+            min_level = _logging.INFO  # fallback
+        # Set class-level default for future Logger instances
+        BjornLogger._configured_level = min_level
+        # Update all existing loggers
+        for name, log in _logging.Logger.manager.loggerDict.items():
+            if isinstance(log, _logging.Logger):
+                log.setLevel(min_level)
+                for handler in log.handlers:
+                    handler.setLevel(min_level)
+
     def load_config(self):
         """Load the configuration from the shared configuration JSON file."""
         try:
@@ -491,6 +538,12 @@ class SharedData:
                     self.config.update(config)
                     for key, value in self.config.items():
                         setattr(self, key, value)
+                # Expand port ranges (e.g. "1-1024") into individual port numbers
+                if hasattr(self, 'portlist') and isinstance(self.portlist, list):
+                    self.portlist = self._expand_port_list(self.portlist)
+                self._apply_log_levels()
+                # Rebuild effective IP blacklist (load_config overwrites it with raw config value)
+                self.update_mac_blacklist()
             else:
                 logger.warning("Configuration file not found, creating new one with default values...")
                 self.save_config()
@@ -710,7 +763,3 @@ class SharedData:
         self.levelnbr = int((self.networkkbnbr * 0.1 + self.crednbr * 0.2 + self.datanbr * 0.1 +
                            self.zombiesnbr * 0.5 + self.attacksnbr + self.vulnnbr * 0.01))
 
-    def print(self, message):
-        """Print a debug message if debug mode is enabled."""
-        if self.config.get('debug_mode', False):
-            logger.debug(message)

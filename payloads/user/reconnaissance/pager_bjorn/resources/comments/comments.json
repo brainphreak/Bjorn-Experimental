@@ -752,18 +752,6 @@
 
 ],
 
-"StealFilesRDP": [
-    "I'm going to try to steal some files from your RDP port!",
-    "RDP is a common target for data theft. Are you protected?",
-    "RDP is a common target for data theft. Make sure your files are secure!",
-    "I'll try to steal some files from your RDP port! Hope you're ready!",
-    "RDP is a common target for data theft. Are you prepared?",
-    "RDP is a common target for data theft. Secure your files well!",
-    "I'll try to steal some files from your RDP port! Hope you're ready!",
-    "RDP is a common target for data theft. Make sure your files are secure!"
-
-],
-
 "SSHBruteforce": [
     "Oh look, an open SSH port! Let's see if you've left any default passwords!",
     "You should disable remote SSH access for better security.",

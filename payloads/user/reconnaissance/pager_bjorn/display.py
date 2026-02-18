@@ -155,7 +155,7 @@ class Display:
     def schedule_update_vuln_count(self):
         while not self.shared_data.display_should_exit:
             self.update_vuln_count()
-            time.sleep(300)
+            time.sleep(30)
 
     def wake_screen(self):
         """Wake screen from dim state."""
@@ -366,24 +366,14 @@ class Display:
                         writer.writerow(["IP", "Hostname", "MAC Address", "Port", "Vulnerabilities"])
                     self.shared_data.vulnnbr = 0
                 else:
-                    alive_macs = set()
-                    if os.path.exists(self.shared_data.netkbfile):
-                        with open(self.shared_data.netkbfile, 'r') as file:
-                            reader = csv.DictReader(file)
-                            for row in reader:
-                                if row.get("Alive") == "1" and row.get("MAC Address") != "STANDALONE":
-                                    alive_macs.add(row.get("MAC Address"))
-
                     with open(self.shared_data.vuln_summary_file, 'r') as file:
                         reader = csv.DictReader(file)
-                        all_vulnerabilities = set()
+                        total_vulns = 0
                         for row in reader:
-                            mac_address = row.get("MAC Address", "")
-                            if mac_address in alive_macs and mac_address != "STANDALONE":
-                                vulnerabilities = row.get("Vulnerabilities", "")
-                                if vulnerabilities and isinstance(vulnerabilities, str):
-                                    all_vulnerabilities.update(vulnerabilities.split("; "))
-                        self.shared_data.vulnnbr = len(all_vulnerabilities)
+                            vulnerabilities = row.get("Vulnerabilities", "").strip()
+                            if vulnerabilities:
+                                total_vulns += len([v for v in vulnerabilities.split("; ") if v.strip()])
+                        self.shared_data.vulnnbr = total_vulns
             except Exception as e:
                 logger.error(f"Error in update_vuln_count: {e}")
 
@@ -397,7 +387,6 @@ class Display:
                             self.shared_data.portnbr = int(row.get('Total Open Ports', 0) or 0)
                             self.shared_data.targetnbr = int(row.get('Alive Hosts Count', 0) or 0)
                             self.shared_data.networkkbnbr = int(row.get('All Known Hosts Count', 0) or 0)
-                            self.shared_data.vulnnbr = int(row.get('Vulnerabilities Count', 0) or 0)
                             break
 
                 crackedpw_files = glob.glob(f"{self.shared_data.crackedpwddir}/*.csv")

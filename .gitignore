@@ -18,6 +18,11 @@ logs/
 # Local dev
 .env
 libs-old/
+dev_backup/
+
+# Build outputs
+build-output/
+src/openssl-3.0.13/
 
 # Exclude all .md files except README.md
 *.md

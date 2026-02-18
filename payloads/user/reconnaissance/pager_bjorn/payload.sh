@@ -70,6 +70,14 @@ export PATH="/mmc/usr/bin:$PAYLOAD_DIR/bin:$PATH"
 export PYTHONPATH="$PAYLOAD_DIR/lib:$PAYLOAD_DIR:$PYTHONPATH"
 export LD_LIBRARY_PATH="/mmc/usr/lib:$PAYLOAD_DIR/lib:$LD_LIBRARY_PATH"
 export CRYPTOGRAPHY_OPENSSL_NO_LEGACY=1
+# NMAPDIR: prefer bundled nmap data, fall back to mmc, then system
+if [ -d "$PAYLOAD_DIR/share/nmap/scripts" ]; then
+    export NMAPDIR="$PAYLOAD_DIR/share/nmap"
+elif [ -d "/mmc/usr/share/nmap/scripts" ]; then
+    export NMAPDIR="/mmc/usr/share/nmap"
+else
+    export NMAPDIR="/usr/share/nmap"
+fi
 
 #
 # Check for Python3 and python3-ctypes - required system dependencies
@@ -134,17 +142,16 @@ fi
 
 #
 # Check PagerBjorn dependencies
-# Python packages are bundled in lib/ directory, nmap is pre-installed on Pager
+# Python packages are bundled in lib/, nmap-full is bundled in bin/ + share/
 #
 check_dependencies() {
     LOG ""
     LOG "Checking dependencies..."
 
-    # Check for nmap binary (should be pre-installed)
-    if ! command -v nmap >/dev/null 2>&1; then
+    # Verify bundled nmap works
+    if ! nmap --version >/dev/null 2>&1; then
         LOG ""
-        LOG "red" "ERROR: nmap not found!"
-        LOG "nmap should be pre-installed on the Pager."
+        LOG "red" "ERROR: nmap binary not working!"
         LOG ""
         LOG "Press any button to exit..."
         WAIT_FOR_INPUT >/dev/null 2>&1

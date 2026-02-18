@@ -77,6 +77,11 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
             self.serve_file_gzipped(os.path.join(self.shared_data.webdir, 'index.html'), 'text/html')
         elif self.path == '/api/stats':
             self.web_utils.serve_stats(self)
+        elif self.path == '/api/vulnerabilities':
+            self.web_utils.serve_vulnerabilities(self)
+        elif self.path.startswith('/api/vulnerabilities/'):
+            ip = self.path.split('/api/vulnerabilities/')[1]
+            self.web_utils.serve_vulnerability_detail(self, ip)
         elif self.path == '/load_config':
             self.web_utils.serve_current_config(self)
         elif self.path == '/restore_default_config':
@@ -180,6 +185,8 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
             self.web_utils.stop_manual_attack(self)
         elif self.path == '/mark_action_start':  # Mark action start time for log filtering
             self.web_utils.mark_action_start(self)
+        elif self.path == '/add_manual_target':  # Add custom IP/hostname to netkb
+            self.web_utils.add_manual_target(self)
         elif self.path == '/api/terminal':
             self.web_utils.execute_terminal_command(self)
         else:

@@ -32,10 +32,13 @@ class FlushingRotatingFileHandler(RotatingFileHandler):
 
 class Logger:
     LOGS_DIR = '/mmc/root/loot/bjorn/logs'
+    _configured_level = None  # Set by shared_data._apply_log_levels()
 
     def __init__(self, name, level=logging.INFO, enable_file_logging=True, enable_console_logging=None):
         self.logger = logging.getLogger(name)
-        self.logger.setLevel(level)
+        # Use configured level from config toggles if available
+        effective_level = Logger._configured_level if Logger._configured_level is not None else level
+        self.logger.setLevel(effective_level)
         # Prevent propagation to root logger (avoids duplicate logs)
         self.logger.propagate = False
 
@@ -54,7 +57,7 @@ class Logger:
         if enable_console_logging:
             # Create console handler with standard formatting (includes milliseconds)
             console_handler = logging.StreamHandler()
-            console_handler.setLevel(level)
+            console_handler.setLevel(effective_level)
             console_formatter = logging.Formatter(
                 '%(asctime)s.%(msecs)03d - %(name)s - %(levelname)s - %(message)s',
                 datefmt='%Y-%m-%d %H:%M:%S'
@@ -77,7 +80,7 @@ class Logger:
                     maxBytes=5*1024*1024,
                     backupCount=2
                 )
-                file_handler.setLevel(level)
+                file_handler.setLevel(effective_level)
                 file_formatter = logging.Formatter(
                     '%(asctime)s.%(msecs)03d - %(name)s - %(levelname)s - %(message)s',
                     datefmt='%Y-%m-%d %H:%M:%S'
