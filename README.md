@@ -326,60 +326,82 @@ All data is stored in `/mmc/root/loot/bjorn/`:
 
 ```
 pager_bjorn/
-├── payload.sh         # Launcher script (handles exit codes, spinner)
-├── bjorn_menu.py      # Graphical startup menu (interface select, clear data)
-├── Bjorn.py           # Main entry point
-├── display.py         # Pager LCD display (pagerctl, pause menu, payload handoff)
+├── payload.sh             # Launcher script (handles exit codes, spinner)
+├── bjorn_menu.py          # Graphical startup menu (interface select, clear data)
+├── Bjorn.py               # Main entry point
+├── display.py             # Pager LCD display (pagerctl, pause menu, payload handoff)
+├── orchestrator.py        # Task scheduler
+├── shared.py              # Shared state & config
+├── utils.py               # Web server utilities
+├── webapp.py              # HTTP server (web UI + API)
+├── logger.py              # Logging with per-module log files
+├── pagerctl.py            # Pager hardware interface
+├── libpagerctl.so         # Native display library
+├── comment.py             # Viking commentary engine
+├── init_shared.py         # Shared data initializer
+├── timeout_utils.py       # Timeout helpers
 ├── launch_pagergotchi.sh  # Handoff launcher for Pagergotchi
-├── orchestrator.py    # Task scheduler
-├── shared.py          # Shared state & config
-├── utils.py           # Web server utilities
-├── webapp.py          # HTTP server (web UI + API)
-├── pagerctl.py        # Pager hardware interface
-├── libpagerctl.so     # Native display library
-├── bin/               # Native binaries (MIPS)
-│   ├── sfreerdp       # FreeRDP client (auth-only)
-│   ├── libssl.so.3    # OpenSSL (sfreerdp dep)
-│   └── libcrypto.so.3 # OpenSSL (sfreerdp dep)
-├── lib/               # Bundled Python packages
-│   ├── paramiko/      # SSH library
-│   ├── cryptography/  # Crypto (paramiko dep)
-│   ├── getmac/        # MAC address lookup
-│   ├── pymysql/       # MySQL client
-│   ├── nmap/          # python-nmap
-│   ├── smb/           # pysmb
+├── bin/                   # Native binaries (MIPS)
+│   ├── nmap               # Network scanner
+│   ├── sfreerdp           # FreeRDP client (auth-only)
+│   ├── xfreerdp           # FreeRDP client (full)
+│   ├── smb2-cat           # libsmb2 file reader
+│   ├── smb2-find          # libsmb2 file finder
+│   └── smb2-share-enum    # libsmb2 share enumerator
+├── lib/                   # Bundled Python packages + native libs
+│   ├── paramiko/          # SSH library
+│   ├── cryptography/      # Crypto (paramiko dep)
+│   ├── bcrypt/            # Password hashing (paramiko dep)
+│   ├── nacl/              # PyNaCl (paramiko dep)
+│   ├── getmac/            # MAC address lookup
+│   ├── pymysql/           # MySQL client
+│   ├── nmap/              # python-nmap
+│   ├── smb/               # pysmb
+│   ├── tqdm/              # Progress bars
+│   ├── libssh2.so.1       # SSH2 native lib
+│   ├── liblua5.4.so.0     # Lua (nmap dep)
+│   ├── libsodium.so       # Crypto native lib
 │   └── ...
-├── actions/           # Attack modules
-│   ├── scanning.py    # Network scanner
-│   ├── nmap_vuln_scanner.py  # Vulnerability scanner (batched NSE)
-│   ├── ftp_connector.py
-│   ├── ssh_connector.py
-│   ├── telnet_connector.py
-│   ├── smb_connector.py
-│   ├── rdp_connector.py
-│   └── ...
+├── share/                 # Data files
+│   └── nmap/              # Nmap scripts, service probes, NSE libs
+├── actions/               # Attack modules
+│   ├── scanning.py            # Network + port scanner
+│   ├── nmap_vuln_scanner.py   # Vulnerability scanner (batched NSE)
+│   ├── ftp_connector.py       # FTP brute force
+│   ├── ssh_connector.py       # SSH brute force
+│   ├── telnet_connector.py    # Telnet brute force
+│   ├── smb_connector.py       # SMB brute force
+│   ├── sql_connector.py       # MySQL brute force
+│   ├── rdp_connector.py       # RDP brute force
+│   ├── steal_files_ftp.py     # FTP file exfiltration
+│   ├── steal_files_ssh.py     # SSH file exfiltration
+│   ├── steal_files_telnet.py  # Telnet file exfiltration
+│   ├── steal_files_smb.py     # SMB file exfiltration
+│   ├── steal_data_sql.py      # MySQL data exfiltration
+│   └── IDLE.py                # Idle/cooldown action
 ├── config/
 │   ├── shared_config.json
 │   └── actions.json
-├── web/               # Web UI (single-page app)
-│   ├── index.html     # SPA shell
+├── web/                   # Web UI (single-page app)
+│   ├── index.html         # SPA shell
 │   ├── css/
-│   │   └── bjorn.css  # Viking theme
+│   │   └── bjorn.css      # Viking theme
 │   ├── scripts/
-│   │   ├── app.js     # SPA router & polling manager
-│   │   ├── dashboard.js  # Stats + integrated console
-│   │   ├── network.js    # Host table + SVG topology
-│   │   ├── attacks.js    # Timeline + manual mode
-│   │   ├── loot.js       # Credentials, files, logs
-│   │   ├── config.js     # Settings editor
-│   │   ├── terminal.js   # Device command execution
-│   │   └── bjorn.js      # LCD framebuffer mirror
+│   │   ├── app.js         # SPA router & polling manager
+│   │   ├── dashboard.js   # Stats grid + status
+│   │   ├── console.js     # Integrated log console
+│   │   ├── network.js     # Host cards + attack badges
+│   │   ├── attacks.js     # Timeline + manual mode
+│   │   ├── loot.js        # Credentials, files, vulns, logs
+│   │   ├── config.js      # Settings editor
+│   │   ├── terminal.js    # Device command execution
+│   │   └── bjorn.js       # LCD framebuffer mirror
 │   └── fonts/
 │       └── Viking.TTF
 └── resources/
-    ├── dictionary/    # Wordlists
-    ├── fonts/         # Display fonts
-    └── images/        # Viking animations
+    ├── dictionary/        # Wordlists
+    ├── fonts/             # Display fonts
+    └── images/            # Viking animations
 ```
 
 ## Clearing Data
