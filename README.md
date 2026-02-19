@@ -2,7 +2,12 @@
 
 A port/rewrite of [Bjorn](https://github.com/infinition/Bjorn) - the autonomous network reconnaissance Tamagotchi - for the WiFi Pineapple Pager.
 
-![Bjorn on Pager](screenshot.png)
+<p align="center">
+  <img src="screenshots/01-pager-display-bjorn-ssh.png" width="160" alt="Bjorn SSH Attack">
+  <img src="screenshots/02-pager-display-vuln-scan.png" width="160" alt="Bjorn Vuln Scan">
+  <img src="screenshots/03-pager-display-bjorn-sql.png" width="160" alt="Bjorn SQL Attack">
+  <img src="screenshots/04-pager-display-bjorn-smb.png" width="160" alt="Bjorn SMB Attack">
+</p>
 
 ## What is Bjorn?
 
@@ -66,6 +71,10 @@ Bjorn is a Tamagotchi-style autonomous network reconnaissance companion. It auto
 
 ### Graphical Menu
 
+<p align="center">
+  <img src="screenshots/00-pager-main-menu.png" width="400" alt="Main Menu">
+</p>
+
 When launching Bjorn, a graphical menu is displayed on the Pager LCD:
 
 1. Dependencies are checked automatically
@@ -87,6 +96,10 @@ Use **UP/DOWN** to navigate, **A (GREEN)** to select, **B (RED)** to go back.
 
 ### Pause Menu
 
+<p align="center">
+  <img src="screenshots/00b-pager-pause-menu.png" width="400" alt="Pause Menu">
+</p>
+
 Press **B** while Bjorn is running to open the pause menu:
 
 | Option | Description |
@@ -106,6 +119,8 @@ The screen automatically dims after a configurable timeout to save battery. Any 
 
 Access the web UI at `http://<pager-ip>:8000`. It is a single-page app with the following tabs:
 
+![Dashboard](screenshots/05-web-dashboard.png)
+
 | Tab | Description |
 |-----|-------------|
 | **Dashboard** | Orchestrator status, live stats grid (targets, credentials, attacks, vulns, ports, data stolen, zombies, level, gold, netKB), and integrated log console with level filters (ALL/INFO/WARN/ERROR), auto-scroll, and incremental log fetching |
@@ -117,6 +132,41 @@ Access the web UI at `http://<pager-ip>:8000`. It is a single-page app with the 
 | **Bjorn** | Live LCD mirror — renders the Pager's raw RGB565 framebuffer in the browser. Scroll-to-zoom on desktop, pinch-to-zoom on mobile |
 
 Only the active tab polls the server — inactive tabs stop polling to conserve device resources.
+
+<details>
+<summary>Network Tab</summary>
+
+![Network](screenshots/06-web-network.png)
+</details>
+
+<details>
+<summary>Attacks Tab — Manual Mode</summary>
+
+![Manual Attack Mode](screenshots/07-web-manual-attack-mode.png)
+![Add Any Host](screenshots/08-web-manual-any-host.png)
+</details>
+
+<details>
+<summary>Loot Tab — Credentials, Files, Vulnerabilities, Logs</summary>
+
+![Credentials](screenshots/09-web-loot-credentials.png)
+![Stolen Files](screenshots/10-web-loot-steal-files.png)
+![Vulnerabilities](screenshots/11-web-loot-vulnerabilities.png)
+![Attack Logs](screenshots/12-web-loot-attack-logs.png)
+</details>
+
+<details>
+<summary>Config Tab</summary>
+
+![Config](screenshots/13-web-config.png)
+![Config More](screenshots/14-web-config-more.png)
+</details>
+
+<details>
+<summary>Terminal Tab</summary>
+
+![Terminal](screenshots/15-web-terminal.png)
+</details>
 
 ## Configuration
 
