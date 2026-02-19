@@ -300,6 +300,8 @@ class SharedData:
         self.display_should_exit = False
         self._orchestrator_should_exit = False  # Local cache, use property for IPC
         self.webapp_should_exit = False
+        self.manual_attack_running = False
+        self.manual_attack_name = None
         self.bjorn_instance = None
         self.wifichanged = False
         self.bluetooth_active = False

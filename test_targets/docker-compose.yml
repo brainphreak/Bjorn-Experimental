@@ -97,16 +97,20 @@ services:
       - ssh-target
     network_mode: service:ssh-target
 
-  # HTTP server with directory listing (for testing web scanning)
+  # HTTP server - intentionally vulnerable Apache for nmap vuln script testing
+  # Triggers: http-enum, http-shellshock, http-trace, http-cookie-flags,
+  #   http-csrf, http-cross-domain-policy, http-internal-ip-disclosure,
+  #   http-method-tamper, http-slowloris-check, http-git, http-vuln-cve2012-1823
   http-target:
-    image: nginx:alpine
+    build:
+      context: ./http
+      dockerfile: Dockerfile
     container_name: bjorn-http-target
     depends_on:
       - ssh-target
     network_mode: service:ssh-target
     volumes:
-      - ./nginx_conf:/etc/nginx/conf.d
-      - ./web_root:/usr/share/nginx/html
+      - ./web_root:/var/www/html
 
   # RDP server with weak credentials (NLA mock server)
   # Credentials: admin:admin, root:root

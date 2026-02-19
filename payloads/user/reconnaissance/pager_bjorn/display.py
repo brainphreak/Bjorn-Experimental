@@ -215,6 +215,11 @@ class Display:
                             f.write(self._handoff_launcher_path)
                         logger.info(f"Wrote .next_payload: {self._handoff_launcher_path}")
                     self.cleanup()
+                    # Kill any running nmap subprocesses before exit
+                    try:
+                        subprocess.run(['killall', 'nmap'], capture_output=True, timeout=5)
+                    except Exception:
+                        pass
                     os._exit(action)
             except Exception as e:
                 logger.error(f"Error in input handler: {e}")

@@ -142,6 +142,11 @@ def handle_exit(sig, frame, display_thread, bjorn_thread, web_thread=None):
     shared_data.orchestrator_should_exit = True  # Ensure orchestrator stops
     shared_data.display_should_exit = True  # Ensure display stops
     shared_data.webapp_should_exit = True  # Ensure web server stops
+    # Kill any running nmap subprocesses
+    try:
+        subprocess.run(['killall', 'nmap'], capture_output=True, timeout=5)
+    except Exception:
+        pass
     handle_exit_display(sig, frame, display_thread)
     if display_thread.is_alive():
         display_thread.join()

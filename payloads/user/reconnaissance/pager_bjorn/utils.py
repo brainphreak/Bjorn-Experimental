@@ -180,6 +180,7 @@ class WebUtils:
                 'StealFilesTelnet': 'Telnet Steal Files',
                 'NetworkScanner': 'Network Scanner',
                 'NmapVulnScanner': 'Nmap Vuln Scanner',
+                'RunAllAttacks': 'All Attacks',
             }
 
             # Define order: group by protocol, brute force first then steal
@@ -330,7 +331,7 @@ class WebUtils:
             self.shared_data.orchestrator_should_exit = False
 
             # Track running attack so UI can recover state after browser refresh
-            is_async = action_class in ('NetworkScanner', 'PortScanner', 'NmapVulnScanner')
+            is_async = action_class in ('NetworkScanner', 'PortScanner', 'NmapVulnScanner', 'RunAllAttacks')
             self.shared_data.manual_attack_running = True
             self.shared_data.manual_attack_name = action_class
 
@@ -397,11 +398,14 @@ class WebUtils:
                             else:
                                 row = next((r for r in current_data if r["IPs"] == ip), None)
                             if row and row.get("Ports"):
-                                # If a specific port was selected, only scan that port
+                                # Pass a copy to execute() so we don't corrupt
+                                # the real Ports column in netkb when restricting
+                                scan_row = dict(row)
                                 if scan_port:
-                                    row["Ports"] = scan_port
+                                    scan_row["Ports"] = scan_port
                                 self.shared_data.attacksnbr += 1
-                                result = self.nmap_vuln_scanner.execute(ip, row, "NmapVulnScanner")
+                                result = self.nmap_vuln_scanner.execute(ip, scan_row, "NmapVulnScanner")
+                                # Write back only the result column, not the modified Ports
                                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                                 row["NmapVulnScanner"] = f'{result}_{timestamp}'
                                 self.shared_data.write_data(current_data)
@@ -429,6 +433,32 @@ class WebUtils:
                 handler.send_header("Content-type", "application/json")
                 handler.end_headers()
                 handler.wfile.write(json.dumps({"status": "success", "message": f"Vulnerability scan started{' on ' + ip if ip else ''}"}).encode('utf-8'))
+                return
+
+            # Handle RunAllAttacks - run all applicable attacks for a host based on open ports
+            if action_class == 'RunAllAttacks':
+                if not ip:
+                    raise Exception("RunAllAttacks requires a target IP")
+                run_all_hostname = hostname  # capture for closure
+                self.logger.info(f"[LIFECYCLE] RunAllAttacks STARTED on {ip}")
+                import threading
+
+                def run_all_attacks():
+                    try:
+                        self._run_all_attacks(ip, run_all_hostname)
+                    except Exception as e:
+                        self.logger.error(f"Error in RunAllAttacks thread: {e}")
+                    finally:
+                        self.shared_data.manual_attack_running = False
+                        self.shared_data.manual_attack_name = None
+                        self.shared_data.orchestrator_should_exit = False
+
+                attack_thread = threading.Thread(target=run_all_attacks)
+                attack_thread.start()
+                handler.send_response(200)
+                handler.send_header("Content-type", "application/json")
+                handler.end_headers()
+                handler.wfile.write(json.dumps({"status": "success", "message": f"Running all attacks on {ip}"}).encode('utf-8'))
                 return
 
             # Regular action - load only the specific action needed
@@ -473,6 +503,150 @@ class WebUtils:
             handler.send_header("Content-type", "application/json")
             handler.end_headers()
             handler.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode('utf-8'))
+
+    def _run_all_attacks(self, ip, hostname):
+        """Run all applicable attacks on a host based on its open ports."""
+        # Load actions config to know port mappings and parent relationships
+        with open(self.shared_data.actions_file, 'r') as f:
+            actions_config = json.load(f)
+
+        # Build lookup tables from actions.json
+        # action_info[b_class] = {b_port, b_parent, b_module}
+        action_info = {}
+        for action in actions_config:
+            b_class = action.get('b_class')
+            if b_class:
+                action_info[b_class] = action
+
+        # Read current host data to get open ports
+        current_data = self.shared_data.read_data()
+        if hostname:
+            row = next((r for r in current_data if r["IPs"] == ip and r.get("Hostnames", "") == hostname), None)
+        else:
+            row = next((r for r in current_data if r["IPs"] == ip), None)
+
+        if row is None:
+            self.logger.error(f"[LIFECYCLE] RunAllAttacks: No data found for {ip}")
+            self.logger.info(f"[LIFECYCLE] RunAllAttacks COMPLETE on {ip}: no host data")
+            return
+
+        ports_str = row.get('Ports', '')
+        if not ports_str:
+            self.logger.warning(f"[LIFECYCLE] RunAllAttacks: No open ports for {ip}")
+            self.logger.info(f"[LIFECYCLE] RunAllAttacks COMPLETE on {ip}: no open ports")
+            return
+
+        # Parse ports
+        open_ports = []
+        for part in ports_str.replace(',', ';').split(';'):
+            part = part.strip()
+            if part and part.isdigit():
+                open_ports.append(int(part))
+        open_ports.sort()
+
+        # Build ordered attack queue:
+        # For each port: brute force first, then steal (only if brute succeeds)
+        # Then NmapVulnScanner at the end
+        attack_queue = []  # list of (action_class, port, parent_class_or_None)
+        for port in open_ports:
+            port_actions = [a for a in action_info.values()
+                           if a.get('b_port') == port and a['b_class'] not in ('IDLE', 'NetworkScanner', 'NmapVulnScanner')]
+            # Brute force actions (no parent)
+            brute_actions = [a for a in port_actions if a.get('b_parent') is None]
+            # Steal actions (have parent)
+            steal_actions = [a for a in port_actions if a.get('b_parent') is not None]
+
+            for ba in brute_actions:
+                attack_queue.append((ba['b_class'], str(port), None))
+            for sa in steal_actions:
+                attack_queue.append((sa['b_class'], str(port), sa['b_parent']))
+
+        # Append vuln scan at the end
+        attack_queue.append(('NmapVulnScanner', '', None))
+
+        total = len(attack_queue)
+        self.logger.info(f"[LIFECYCLE] RunAllAttacks: {total} attacks queued for {ip} (ports: {open_ports})")
+
+        results = {}  # action_class -> 'success' or 'failed'
+        completed = 0
+
+        for i, (action_class, port, parent_class) in enumerate(attack_queue, 1):
+            # Check if we should stop
+            if self.shared_data.orchestrator_should_exit:
+                self.logger.info(f"[LIFECYCLE] RunAllAttacks: Stopped by user after {completed}/{total} attacks")
+                break
+
+            # Skip steal actions if their parent brute force failed
+            if parent_class and results.get(parent_class) != 'success':
+                self.logger.info(f"[LIFECYCLE] RunAllAttacks: Skipping {action_class} ({i}/{total}) — parent {parent_class} did not succeed")
+                results[action_class] = 'skipped'
+                completed += 1
+                continue
+
+            # Update UI status to show current sub-action
+            self.shared_data.manual_attack_name = action_class
+
+            port_display = f":{port}" if port else ""
+            self.logger.info(f"[LIFECYCLE] RunAllAttacks: Running {action_class} on {ip}{port_display} ({i}/{total})")
+
+            try:
+                if action_class == 'NmapVulnScanner':
+                    self.ensure_nmap_scanner()
+                    # Re-read data fresh for vuln scan
+                    current_data = self.shared_data.read_data()
+                    if hostname:
+                        row = next((r for r in current_data if r["IPs"] == ip and r.get("Hostnames", "") == hostname), None)
+                    else:
+                        row = next((r for r in current_data if r["IPs"] == ip), None)
+                    if row and row.get("Ports"):
+                        # Vuln scan uses all open ports from netkb (port 139
+                        # dedup with 445 is handled inside the scanner itself)
+                        self.shared_data.attacksnbr += 1
+                        result = self.nmap_vuln_scanner.execute(ip, row, "NmapVulnScanner")
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        row["NmapVulnScanner"] = f'{result}_{timestamp}'
+                        self.shared_data.write_data(current_data)
+                        results[action_class] = result
+                    else:
+                        results[action_class] = 'skipped'
+                else:
+                    action_instance = self.ensure_single_action(action_class)
+                    if action_instance is None:
+                        self.logger.warning(f"[LIFECYCLE] RunAllAttacks: Action {action_class} not found, skipping")
+                        results[action_class] = 'skipped'
+                        completed += 1
+                        continue
+
+                    # Re-read data fresh for each action
+                    current_data = self.shared_data.read_data()
+                    if hostname:
+                        row = next((r for r in current_data if r["IPs"] == ip and r.get("Hostnames", "") == hostname), None)
+                    else:
+                        row = next((r for r in current_data if r["IPs"] == ip), None)
+                    if row is None:
+                        results[action_class] = 'failed'
+                        completed += 1
+                        continue
+
+                    action_key = action_instance.action_name
+                    self.shared_data.attacksnbr += 1
+                    result = action_instance.execute(ip, port, row, action_key)
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    row[action_key] = f'{result}_{timestamp}'
+                    self.shared_data.write_data(current_data)
+                    results[action_class] = result
+
+            except Exception as e:
+                self.logger.error(f"[LIFECYCLE] RunAllAttacks: {action_class} error: {e}")
+                results[action_class] = 'failed'
+
+            completed += 1
+
+        # Log summary
+        success_count = sum(1 for v in results.values() if v == 'success')
+        failed_count = sum(1 for v in results.values() if v == 'failed')
+        skipped_count = sum(1 for v in results.values() if v == 'skipped')
+        self.logger.info(f"[LIFECYCLE] RunAllAttacks COMPLETE on {ip}: {success_count} succeeded, {failed_count} failed, {skipped_count} skipped out of {total}")
 
     def scan_ports_single_ip(self, ip):
         """

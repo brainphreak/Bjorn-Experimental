@@ -50,18 +50,28 @@ class NmapVulnScanner:
          "http-vmware-path-vuln,http-phpmyadmin-dir-traversal,http-iis-webdav-vuln,"
          "http-frontpage-login,http-adobe-coldfusion-apsa1301,http-avaya-ipoffice-users,"
          "http-awstatstotals-exec,http-axis2-dir-traversal",
-         30),
-        # Batch 3: Discovery + config checks
-        ("Discovery and config checks",
-         "http-enum,http-cookie-flags,http-cross-domain-policy,http-trace,"
+         30,
+         "http-shellshock.uri=/cgi-bin/status.sh"),
+        # Batch 3: Path enumeration (http-enum needs >100s on MIPS, own batch)
+        ("Path enumeration",
+         "http-enum",
+         120),
+        # Batch 4: Config checks (fast scripts)
+        ("Config checks",
+         "http-cookie-flags,http-cross-domain-policy,http-trace,"
          "http-internal-ip-disclosure,http-aspnet-debug,http-jsonp-detection,"
          "http-method-tamper,http-litespeed-sourcecode-download,"
          "http-majordomo2-dir-traversal,http-wordpress-users,http-phpself-xss",
-         30),
-        # Batch 4: Crawlers (heavier, longer timeout)
+         30,
+         "http-method-tamper.paths={/admin/index.php}"),
+        # Batch 5: Crawlers (heavier, longer timeout)
         ("Crawler checks",
          "http-csrf,http-dombased-xss,http-stored-xss,http-sql-injection,"
-         "http-slowloris-check,http-fileupload-exploiter",
+         "http-fileupload-exploiter",
+         60),
+        # Batch 6: Slowloris MUST be last — it exhausts server connections
+        ("Slowloris check",
+         "http-slowloris-check",
          60),
     ]
 
@@ -114,14 +124,21 @@ class NmapVulnScanner:
             logger.error(f"Error updating summary file: {e}")
 
 
-    def _run_nmap_scripts(self, ip, port, scripts, script_timeout, batch_timeout, hostname=None):
+    def _run_nmap_scripts(self, ip, port, scripts, script_timeout, batch_timeout,
+                          hostname=None, extra_args=None):
         """Run a set of nmap scripts against ip:port. Returns (stdout, success)."""
         try:
             cmd = ["nmap", self.shared_data.nmap_scan_aggressivity,
                  "--script", scripts,
                  "--script-timeout", f"{script_timeout}s"]
+            # Build script-args: hostname + any batch-specific args
+            args_parts = []
             if hostname:
-                cmd.extend(["--script-args", f"http.host={hostname}"])
+                args_parts.append(f"http.host={hostname}")
+            if extra_args:
+                args_parts.append(extra_args)
+            if args_parts:
+                cmd.extend(["--script-args", ",".join(args_parts)])
             cmd.extend(["-p", port, ip])
             result = subprocess.run(
                 cmd,
@@ -141,12 +158,16 @@ class NmapVulnScanner:
         batches_succeeded = 0
         batch_timeout = getattr(self.shared_data, 'vuln_scan_timeout', 120)
 
-        for batch_name, scripts, script_timeout in self.HTTP_VULN_BATCHES:
+        for batch in self.HTTP_VULN_BATCHES:
             if self.shared_data.orchestrator_should_exit:
                 break
+            batch_name, scripts, script_timeout = batch[0], batch[1], batch[2]
+            extra_args = batch[3] if len(batch) > 3 else None
             logger.info(f"Vuln scanning {ip}:{port} - {batch_name}..." + (f" (Host: {hostname})" if hostname else ""))
             self.shared_data.bjornstatustext2 = f"{ip}:{port} {batch_name}"
-            stdout, ok = self._run_nmap_scripts(ip, port, scripts, script_timeout, batch_timeout, hostname=hostname)
+            stdout, ok = self._run_nmap_scripts(ip, port, scripts, script_timeout,
+                                                batch_timeout, hostname=hostname,
+                                                extra_args=extra_args)
             if ok:
                 combined += stdout
                 batches_succeeded += 1
@@ -166,9 +187,16 @@ class NmapVulnScanner:
 
     def scan_vulnerabilities(self, ip, hostname, mac, ports):
         combined_result = ""
-        all_vulnerabilities = []
+        all_vulnerabilities = set()
         all_details = []
         ports_succeeded = 0
+
+        # Skip port 139 (NetBIOS-SSN) when 445 (SMB) is present —
+        # SMB vuln scripts only work on 445; scanning 139 wastes time and duplicates results
+        port_set = set(p.strip() for p in ports)
+        if '445' in port_set and '139' in port_set:
+            ports = [p for p in ports if p.strip() != '139']
+            logger.info(f"Skipping port 139 (redundant with 445) for {ip}")
 
         self.shared_data.bjornstatustext2 = ip
         logger.info(f"Scanning {ip} on {len(ports)} ports for vulnerabilities with aggressivity {self.shared_data.nmap_scan_aggressivity}")
@@ -189,16 +217,39 @@ class NmapVulnScanner:
 
                 vulns = self.parse_vulnerabilities(stdout)
                 if vulns:
-                    all_vulnerabilities.append(vulns)
+                    for v in vulns.split("; "):
+                        if v.strip():
+                            all_vulnerabilities.add(v.strip())
                     logger.info(f"Vulnerabilities found on {ip}:{port}: {vulns}")
 
                 details = self.parse_vulnerability_details(stdout)
                 if details:
                     all_details.extend(details)
 
+        # Merge duplicate findings across ports — add port to existing finding
+        merged_details = []
+        seen_scripts = {}  # script_name -> index in merged_details
+        for finding in all_details:
+            key = finding.get('script', '')
+            if key in seen_scripts:
+                # Same vulnerability on another port — append port info
+                existing = merged_details[seen_scripts[key]]
+                existing_port = existing.get('port', '')
+                new_port = finding.get('port', '')
+                if new_port and new_port not in existing_port:
+                    existing['port'] = f"{existing_port}, {new_port}"
+                    existing_svc = existing.get('service', '')
+                    new_svc = finding.get('service', '')
+                    if new_svc and new_svc not in existing_svc:
+                        existing['service'] = f"{existing_svc}, {new_svc}"
+            else:
+                seen_scripts[key] = len(merged_details)
+                merged_details.append(finding)
+        all_details = merged_details
+
         # Save combined results from all ports that completed
         if ports_succeeded > 0:
-            merged_vulns = "; ".join(all_vulnerabilities) if all_vulnerabilities else ""
+            merged_vulns = "; ".join(sorted(all_vulnerabilities)) if all_vulnerabilities else ""
             scanned_ports = ",".join(ports)
             if merged_vulns:
                 logger.info(f"All vulnerabilities on {ip}: {merged_vulns}")
@@ -236,45 +287,94 @@ class NmapVulnScanner:
             logger.lifecycle_end("NmapVulnScanner", status, duration, ip)
         return status
 
+    # Regex matching NSE script headers in both multi-line and single-line formats:
+    #   "| http-git: "          (multi-line block header)
+    #   "|_http-trace: TRACE…"  (single-line result)
+    _SCRIPT_RE = re.compile(r'^\|[_ ]?\s*([\w][\w-]*-[\w][\w-]*)\s*:\s*(.*)')
+
+    # Nmap output lines that indicate the script found nothing — not a vulnerability
+    _NEGATIVE_RE = re.compile(
+        r"Couldn't find any|Couldn't find a file-type"
+        r"|not vulnerable|NOT VULNERABLE"
+        r"|no vulnerable|no issues found|^ERROR(?::|$)"
+        r"|Script execution failed",
+        re.IGNORECASE)
+
     def parse_vulnerabilities(self, scan_result):
         """
-        Parses Nmap --script vuln output to extract confirmed vulnerabilities.
-        Output format has NSE script blocks like:
-            | smb-vuln-ms17-010:
-            |   VULNERABLE:
-            |     State: VULNERABLE
-            |     IDs:  CVE:CVE-2017-0143
-        For each vulnerable script block, stores CVE IDs if present,
-        otherwise falls back to the script name.
+        Parses Nmap NSE script output to extract findings.
+
+        Two output styles are handled:
+        1. Structured vuln blocks (http-vuln-*, smb-vuln-*, etc.):
+               | http-vuln-cve2012-1823:
+               |   VULNERABLE:
+               |     State: VULNERABLE
+               |     IDs:  CVE:CVE-2012-1823
+           → requires "State: VULNERABLE"; stores CVE IDs or script name.
+
+        2. Informational scripts (http-git, http-enum, http-cookie-flags, etc.):
+               | http-git:
+               |   10.0.0.1:80/.git/
+               |     Potential Git repository found
+           → any output lines after the header = a finding; stores script name.
+
+        3. Single-line results:
+               |_http-trace: TRACE is enabled
+           → positive inline text = a finding; negative text = skip.
         """
         vulnerabilities = set()
         current_script = None
         current_cves = set()
         is_vulnerable = False
+        has_output = False
+        in_refs = False
 
         def save_block():
-            if current_script and is_vulnerable:
+            if not current_script:
+                return
+            friendly = self._SCRIPT_TITLES.get(current_script, current_script)
+            if is_vulnerable:
+                # Structured vuln block — use title with CVE if available
                 if current_cves:
-                    vulnerabilities.update(current_cves)
+                    cve_str = ", ".join(sorted(current_cves))
+                    vulnerabilities.add(f"{friendly} ({cve_str})")
                 else:
-                    vulnerabilities.add(current_script)
+                    vulnerabilities.add(friendly)
+            elif has_output and not current_script.startswith('http-vuln-'):
+                # Informational script with output — the output IS the finding
+                vulnerabilities.add(friendly)
 
         for line in scan_result.splitlines():
-            # Match NSE script name header: "| script-name:" (require hyphen to
-            # avoid matching indented properties like State:, IDs:, Description:)
-            m = re.match(r'^\|\s+([\w][\w-]*-[\w][\w-]*)\s*:', line)
+            m = self._SCRIPT_RE.match(line)
             if m:
                 save_block()
                 current_script = m.group(1)
                 current_cves = set()
                 is_vulnerable = False
+                has_output = False
+                in_refs = False
+                # Single-line result: "|_http-trace: TRACE is enabled"
+                inline = m.group(2).strip()
+                if inline and not self._NEGATIVE_RE.search(inline):
+                    has_output = True
+                continue
+
+            # Count content lines belonging to current script block
+            if current_script and re.match(r'^\|[_ ]?\s', line):
+                stripped = re.sub(r'^\|[_ ]?\s*', '', line).strip()
+                if stripped and not self._NEGATIVE_RE.search(stripped):
+                    has_output = True
+
+            # Stop collecting CVEs once we hit References section
+            if re.match(r'^\|?\s+References:', line):
+                in_refs = True
 
             # "State: VULNERABLE" or "State: LIKELY VULNERABLE" confirms a finding
             if re.search(r'State:\s+(LIKELY\s+)?VULNERABLE', line):
                 is_vulnerable = True
 
-            # Collect CVE IDs from confirmed vulnerable sections
-            if is_vulnerable:
+            # Collect CVE IDs only from IDs line, not from References URLs
+            if is_vulnerable and not in_refs:
                 for cve in re.findall(r'CVE-\d{4}-\d+', line):
                     current_cves.add(cve)
 
@@ -284,14 +384,13 @@ class NmapVulnScanner:
 
     def parse_vulnerability_details(self, scan_result):
         """
-        Parse structured vulnerability details from nmap --script vuln output.
+        Parse structured vulnerability details from nmap NSE script output.
         Returns list of findings with port, service, title, state, CVEs, description.
         """
         findings = []
         current_port = None
         current_service = None
 
-        # First pass: collect all script blocks with their port context
         lines = scan_result.splitlines()
         i = 0
         while i < len(lines):
@@ -311,20 +410,30 @@ class NmapVulnScanner:
                 i += 1
                 continue
 
-            # Script header
-            script_match = re.match(r'^\|\s+([\w][\w-]*-[\w][\w-]*)\s*:', line)
+            # Script header — matches both "| script:" and "|_script: text"
+            script_match = self._SCRIPT_RE.match(line)
             if script_match:
                 script_name = script_match.group(1)
-                # Collect block lines until next script or end of NSE output
+                inline_text = script_match.group(2).strip()
+
+                # Single-line result (|_script: text) — no block lines to collect
+                if line.startswith('|_') and inline_text:
+                    if not self._NEGATIVE_RE.search(inline_text):
+                        finding = self._make_info_finding(
+                            script_name, inline_text, current_port, current_service)
+                        if finding:
+                            findings.append(finding)
+                    i += 1
+                    continue
+
+                # Multi-line block — collect lines until next script or end
                 block_lines = []
                 i += 1
                 while i < len(lines):
                     l = lines[i]
-                    # Stop at next port line, Host script results, or non-NSE line
                     if re.match(r'^\d+/\w+\s+\w+', l) or 'Host script results:' in l:
                         break
-                    # Stop at next script header (but not |_ single-line results)
-                    if re.match(r'^\|\s+([\w][\w-]*-[\w][\w-]*)\s*:', l):
+                    if self._SCRIPT_RE.match(l):
                         break
                     if not l.startswith('|'):
                         break
@@ -341,8 +450,56 @@ class NmapVulnScanner:
 
         return findings
 
+    # Human-readable titles for well-known informational scripts
+    _SCRIPT_TITLES = {
+        'http-git': 'Git Repository Exposed',
+        'http-enum': 'Common Paths Found',
+        'http-trace': 'TRACE Method Enabled',
+        'http-csrf': 'CSRF Vulnerabilities',
+        'http-cookie-flags': 'Insecure Cookie Flags',
+        'http-cross-domain-policy': 'Permissive Cross-Domain Policy',
+        'http-internal-ip-disclosure': 'Internal IP Disclosure',
+        'http-method-tamper': 'HTTP Method Tampering',
+        'http-sql-injection': 'SQL Injection',
+        'http-dombased-xss': 'DOM-Based XSS',
+        'http-stored-xss': 'Stored XSS',
+        'http-shellshock': 'Shellshock (CVE-2014-6271)',
+        'http-slowloris-check': 'Slowloris DoS Vulnerability',
+        'http-fileupload-exploiter': 'File Upload Vulnerability',
+        'http-passwd': 'Password File Disclosure',
+        'http-phpmyadmin-dir-traversal': 'phpMyAdmin Directory Traversal',
+        'http-jsonp-detection': 'JSONP Endpoint Found',
+        'http-phpself-xss': 'PHP_SELF XSS',
+    }
+
+    # Nmap noise lines to skip when building descriptions
+    _NOISE_RE = re.compile(
+        r'^Spidering limited to:|^Couldn\'t find|^No output from'
+        r'|^Did not find any|^Server does not',
+        re.IGNORECASE)
+
+    def _make_info_finding(self, script_name, text, port, service):
+        """Create a finding dict for a single-line informational result."""
+        return {
+            'port': port or '',
+            'service': service or '',
+            'script': script_name,
+            'title': self._SCRIPT_TITLES.get(script_name, script_name),
+            'state': 'FOUND',
+            'cves': [],
+            'risk': 'Informational',
+            'description': text,
+            'disclosure_date': '',
+            'references': []
+        }
+
     def _parse_vuln_block(self, script_name, block_lines, port, service):
-        """Parse a single NSE script block. Returns a finding dict or None."""
+        """Parse a single NSE script block. Returns a finding dict or None.
+
+        Handles two formats:
+        1. Structured vuln blocks with State:/IDs:/Risk factor: fields
+        2. Informational scripts that just list findings as text lines
+        """
         state = ''
         title = ''
         cves = []
@@ -352,6 +509,7 @@ class NmapVulnScanner:
         refs = []
         in_refs = False
         got_title = False
+        info_lines = []
 
         for line in block_lines:
             # Strip the leading |/|_ and whitespace
@@ -372,11 +530,26 @@ class NmapVulnScanner:
             if 'NOT VULNERABLE' in stripped:
                 return None
 
-            # CVE IDs
-            found_cves = re.findall(r'CVE-\d{4}-\d+', line)
-            if found_cves:
-                cves.extend(found_cves)
+            # Skip negative/noise lines for informational scripts
+            if self._NEGATIVE_RE.search(stripped):
                 continue
+
+            # References section — must be checked before CVE collection
+            # to avoid grabbing CVE IDs from reference URLs
+            if stripped == 'References:':
+                in_refs = True
+                continue
+
+            if in_refs and ('http://' in stripped or 'https://' in stripped):
+                refs.append(stripped)
+                continue
+
+            # CVE IDs (only from IDs line, not from References URLs)
+            if not in_refs:
+                found_cves = re.findall(r'CVE-\d{4}-\d+', line)
+                if found_cves:
+                    cves.extend(found_cves)
+                    continue
 
             # IDs line without CVE
             if stripped.startswith('IDs:'):
@@ -396,19 +569,14 @@ class NmapVulnScanner:
                 in_refs = False
                 continue
 
-            # References section
-            if stripped == 'References:':
-                in_refs = True
-                continue
-
-            if in_refs and ('http://' in stripped or 'https://' in stripped):
-                refs.append(stripped)
-                continue
-
             # Skip State/property lines we already handled
             if any(stripped.startswith(kw) for kw in ('State:', 'IDs:', 'Risk factor:',
                                                        'Disclosure date:', 'References:')):
                 continue
+
+            # Collect non-noise lines for informational output
+            if stripped and not self._NOISE_RE.match(stripped):
+                info_lines.append(stripped)
 
             # Title — first meaningful line
             if not got_title and stripped:
@@ -420,21 +588,37 @@ class NmapVulnScanner:
             if got_title and not in_refs and stripped:
                 desc_lines.append(stripped)
 
-        if not state:
-            return None
+        # Structured vuln block — require State: VULNERABLE
+        if state:
+            return {
+                'port': port or '',
+                'service': service or '',
+                'script': script_name,
+                'title': self._SCRIPT_TITLES.get(script_name, title),
+                'state': state,
+                'cves': list(set(cves)),
+                'risk': risk,
+                'description': ' '.join(desc_lines),
+                'disclosure_date': disclosure,
+                'references': refs
+            }
 
-        return {
-            'port': port or '',
-            'service': service or '',
-            'script': script_name,
-            'title': title,
-            'state': state,
-            'cves': list(set(cves)),
-            'risk': risk,
-            'description': ' '.join(desc_lines),
-            'disclosure_date': disclosure,
-            'references': refs
-        }
+        # Informational script — any output = a finding (skip http-vuln-* without state)
+        if info_lines and not script_name.startswith('http-vuln-'):
+            return {
+                'port': port or '',
+                'service': service or '',
+                'script': script_name,
+                'title': self._SCRIPT_TITLES.get(script_name, script_name),
+                'state': 'FOUND',
+                'cves': list(set(cves)),
+                'risk': risk or 'Informational',
+                'description': ' '.join(info_lines[:10]),
+                'disclosure_date': '',
+                'references': refs
+            }
+
+        return None
 
     def save_vulnerability_details(self, mac_address, ip, details):
         """Save structured vulnerability details as JSON."""

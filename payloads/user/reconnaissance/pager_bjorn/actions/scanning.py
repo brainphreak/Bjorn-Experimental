@@ -135,7 +135,8 @@ class NetworkScanner:
                 if os.path.exists(netkbfile):
                     with open(netkbfile, 'r') as file:
                         reader = csv.DictReader(file)
-                        existing_headers = reader.fieldnames
+                        if reader.fieldnames:
+                            existing_headers = reader.fieldnames
                         existing_action_columns = [header for header in existing_headers if header not in ["MAC Address", "IPs", "Hostnames", "Alive", "Ports"]]
                         for row in reader:
                             mac = row["MAC Address"]

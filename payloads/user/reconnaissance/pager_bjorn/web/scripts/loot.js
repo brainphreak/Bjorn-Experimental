@@ -180,14 +180,6 @@ const LootTab = {
                 html += '<tr class="vuln-detail-row" id="vuln-detail-' + entry.ip.replace(/\./g, '-') + '" style="display:' + (isExpanded ? 'table-row' : 'none') + ';">' +
                     '<td colspan="4"><div class="vuln-detail-content">';
 
-                // Show vulnerability list
-                html += '<div class="vuln-list">';
-                vulnList.forEach(v => {
-                    const isCVE = v.includes('CVE-');
-                    html += '<div class="vuln-item' + (isCVE ? ' vuln-cve' : '') + '">' + this.escapeHtml(v) + '</div>';
-                });
-                html += '</div>';
-
                 // Nmap detail container (loaded on demand)
                 html += '<div class="vuln-nmap-output" id="vuln-nmap-' + entry.ip.replace(/\./g, '-') + '"></div>';
                 html += '</div></td></tr>';

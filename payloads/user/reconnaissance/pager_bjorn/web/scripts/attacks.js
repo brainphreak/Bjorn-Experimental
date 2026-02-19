@@ -68,7 +68,8 @@ var AttacksTab = {
     attackDisplayNames: {
         'NetworkScanner': 'Network Scan',
         'PortScanner': 'Port Scan',
-        'NmapVulnScanner': 'Vuln Scan'
+        'NmapVulnScanner': 'Vuln Scan',
+        'RunAllAttacks': 'All Attacks'
     },
 
     deactivate() {
@@ -204,7 +205,8 @@ var AttacksTab = {
             drop.innerHTML = this.netkbData.actions.map(a => {
                 var name = this.actionDisplayNames[a] || a;
                 return '<option value="' + a + '">' + name + '</option>';
-            }).join('') + '<option value="NmapVulnScanner">Vuln Scan</option>';
+            }).join('') + '<option value="NmapVulnScanner">Vuln Scan</option>' +
+                '<option value="RunAllAttacks">-- Run All Attacks --</option>';
         }
         if (prevAction) {
             var opt = drop.querySelector('option[value="' + prevAction + '"]');
@@ -290,6 +292,13 @@ var AttacksTab = {
         if (port === 'port_scan') {
             return this.runAttack({ ip: ip, port: '', action: 'PortScanner' }, 'Port Scan');
         }
+        if (action === 'RunAllAttacks') {
+            if (!ip || ipRaw === 'network_scan') {
+                App.toast('Select a target host first', 'error');
+                return;
+            }
+            return this.runAttack({ ip: ip, action: 'RunAllAttacks', hostname: hostname }, 'All Attacks');
+        }
         if (action === 'NmapVulnScanner') {
             var vulnPort = (port && port !== 'port_scan' && port !== 'all_ports') ? port : '';
             var label = vulnPort ? 'Vuln Scan :' + vulnPort : 'Vuln Scan';
@@ -313,7 +322,7 @@ var AttacksTab = {
 
         // Scans run in a background thread — POST returns immediately, need to poll for completion.
         // Regular attacks run synchronously — POST blocks until done, no polling needed.
-        var isAsync = params.action === 'NetworkScanner' || params.action === 'PortScanner' || params.action === 'NmapVulnScanner';
+        var isAsync = params.action === 'NetworkScanner' || params.action === 'PortScanner' || params.action === 'NmapVulnScanner' || params.action === 'RunAllAttacks';
 
         try {
             await App.post('/mark_action_start');
@@ -401,22 +410,25 @@ var AttacksTab = {
 
         // Check both [LIFECYCLE]...ENDED (bruteforce modules) and
         // "ENDED (success)" / "ENDED (failure)" without [LIFECYCLE] (scanning modules)
+        // RunAllAttacks logs "RunAllAttacks COMPLETE" when finished
         this.completionCheck = setInterval(function() {
             var el = document.getElementById('attack-log-output');
             var text = el.textContent || '';
-            var hasLifecycleEnd = text.includes('[LIFECYCLE]') && text.includes('ENDED');
-            var hasScanEnd = text.includes('ENDED (success)') || text.includes('ENDED (failure)');
-            if (hasLifecycleEnd || hasScanEnd) {
+            var hasRunAllEnd = text.includes('RunAllAttacks COMPLETE');
+            var hasLifecycleEnd = !hasRunAllEnd && text.includes('[LIFECYCLE]') && text.includes('ENDED');
+            var hasScanEnd = !hasRunAllEnd && (text.includes('ENDED (success)') || text.includes('ENDED (failure)'));
+            if (hasRunAllEnd || hasLifecycleEnd || hasScanEnd) {
                 self.attackFinished(true, actionName + ' completed');
             }
         }, 1000);
 
-        // Safety timeout 10 min
+        // Safety timeout: 30 min for RunAllAttacks, 10 min for others
+        var timeout = actionName === 'All Attacks' ? 1800000 : 600000;
         this.completionTimeout = setTimeout(function() {
             if (self.isAttackRunning) {
                 self.attackFinished(false, actionName + ' timed out');
             }
-        }, 600000);
+        }, timeout);
     },
 
     async addTarget() {
