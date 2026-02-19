@@ -119,7 +119,7 @@ The screen automatically dims after a configurable timeout to save battery. Any 
 
 Access the web UI at `http://<pager-ip>:8000`. It is a single-page app with the following tabs:
 
-![Dashboard](screenshots/05-web-dashboard.png)
+<img src="screenshots/05-web-dashboard.png" width="800" alt="Dashboard">
 
 | Tab | Description |
 |-----|-------------|
@@ -136,36 +136,36 @@ Only the active tab polls the server — inactive tabs stop polling to conserve 
 <details>
 <summary>Network Tab</summary>
 
-![Network](screenshots/06-web-network.png)
+<img src="screenshots/06-web-network.png" width="800" alt="Network">
 </details>
 
 <details>
 <summary>Attacks Tab — Manual Mode</summary>
 
-![Manual Attack Mode](screenshots/07-web-manual-attack-mode.png)
-![Add Any Host](screenshots/08-web-manual-any-host.png)
+<img src="screenshots/07-web-manual-attack-mode.png" width="800" alt="Manual Attack Mode">
+<img src="screenshots/08-web-manual-any-host.png" width="800" alt="Add Any Host">
 </details>
 
 <details>
 <summary>Loot Tab — Credentials, Files, Vulnerabilities, Logs</summary>
 
-![Credentials](screenshots/09-web-loot-credentials.png)
-![Stolen Files](screenshots/10-web-loot-steal-files.png)
-![Vulnerabilities](screenshots/11-web-loot-vulnerabilities.png)
-![Attack Logs](screenshots/12-web-loot-attack-logs.png)
+<img src="screenshots/09-web-loot-credentials.png" width="800" alt="Credentials">
+<img src="screenshots/10-web-loot-steal-files.png" width="800" alt="Stolen Files">
+<img src="screenshots/11-web-loot-vulnerabilities.png" width="800" alt="Vulnerabilities">
+<img src="screenshots/12-web-loot-attack-logs.png" width="800" alt="Attack Logs">
 </details>
 
 <details>
 <summary>Config Tab</summary>
 
-![Config](screenshots/13-web-config.png)
-![Config More](screenshots/14-web-config-more.png)
+<img src="screenshots/13-web-config.png" width="800" alt="Config">
+<img src="screenshots/14-web-config-more.png" width="800" alt="Config More">
 </details>
 
 <details>
 <summary>Terminal Tab</summary>
 
-![Terminal](screenshots/15-web-terminal.png)
+<img src="screenshots/15-web-terminal.png" width="800" alt="Terminal">
 </details>
 
 ## Configuration
