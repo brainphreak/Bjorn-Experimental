@@ -3,11 +3,6 @@ steal_files_ssh.py - This script connects to remote SSH servers using provided c
 """
 
 import os
-import sys
-# Add vendored lib to path for paramiko
-_lib_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'lib')
-if _lib_path not in sys.path:
-    sys.path.insert(0, _lib_path)
 import paramiko
 import logging
 import time

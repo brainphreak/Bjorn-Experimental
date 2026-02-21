@@ -1,12 +1,7 @@
 import os
-import sys
 import csv
 import logging
 import time
-# Add vendored lib to path for pymysql
-_lib_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'lib')
-if _lib_path not in sys.path:
-    sys.path.insert(0, _lib_path)
 import pymysql
 from shared import SharedData
 from logger import Logger

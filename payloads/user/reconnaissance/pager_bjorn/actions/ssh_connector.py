@@ -3,12 +3,7 @@ ssh_connector.py - This script performs a brute force attack on SSH services (po
 """
 
 import os
-import sys
 import csv
-# Add vendored lib to path for paramiko
-_lib_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'lib')
-if _lib_path not in sys.path:
-    sys.path.insert(0, _lib_path)
 import paramiko
 import socket
 import threading
