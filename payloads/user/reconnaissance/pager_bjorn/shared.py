@@ -19,6 +19,8 @@ import time
 import csv
 import logging
 import subprocess
+import struct
+import ctypes
 from logger import Logger
 
 logger = Logger(name="shared.py", level=logging.INFO)
@@ -38,6 +40,7 @@ class SharedData:
         self.create_livestatusfile()
         self.load_fonts()
         self.load_images()
+        self.load_theme()
 
     def initialize_paths(self):
         """Initialize the paths used by the application."""
@@ -174,6 +177,9 @@ class SharedData:
             "log_warning": True,
             "log_error": True,
             "log_critical": True,
+
+            "__title_theme__": "Theme",
+            "theme": "bjorn",
         }
 
     def update_mac_blacklist(self):
@@ -600,6 +606,213 @@ class SharedData:
             logger.error(f"Error loading font paths: {e}")
             raise
 
+    @staticmethod
+    def _find_image(directory, name):
+        """Find an image file, preferring .png over .bmp."""
+        for ext in ('.png', '.bmp'):
+            path = os.path.join(directory, f'{name}{ext}')
+            if os.path.isfile(path):
+                return path
+        return None
+
+    @staticmethod
+    def _is_image(filename):
+        """Check if a filename is a supported image."""
+        return filename.endswith('.bmp') or filename.endswith('.png')
+
+    def _init_stb(self):
+        """Lazy-init stbi_load bindings (shared across all flatten calls)."""
+        if not hasattr(self, '_stb_lib'):
+            lib_path = os.path.join(self.currentdir, "lib", "libpagerctl.so")
+            self._stb_lib = ctypes.CDLL(lib_path)
+            self._stb_lib.stbi_load.argtypes = [ctypes.c_char_p, ctypes.POINTER(ctypes.c_int),
+                                                  ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int), ctypes.c_int]
+            self._stb_lib.stbi_load.restype = ctypes.POINTER(ctypes.c_ubyte)
+            self._stb_lib.stbi_image_free.argtypes = [ctypes.c_void_p]
+            self._stb_lib.stbi_image_free.restype = None
+
+    def _flatten_png(self, png_path):
+        """Flatten a PNG with alpha transparency against the theme background color.
+        Uses stbi_load from libpagerctl.so to read pixels, composites alpha,
+        and writes a BMP to a cache directory. Returns the cached BMP path,
+        or the original path if no alpha or on error.
+        Caches results: skips processing if cached BMP is newer than source PNG."""
+        if not png_path.endswith('.png'):
+            return png_path
+        try:
+            # Build cache path
+            cache_dir = os.path.join(self.currentdir, "themes", ".cache")
+            rel_path = os.path.relpath(png_path, self.currentdir)
+            bmp_name = os.path.splitext(rel_path)[0] + '.bmp'
+            bmp_path = os.path.join(cache_dir, bmp_name)
+
+            # Skip if cached BMP exists and is newer than source PNG
+            if os.path.isfile(bmp_path):
+                if os.path.getmtime(bmp_path) >= os.path.getmtime(png_path):
+                    return bmp_path
+
+            self._init_stb()
+            lib = self._stb_lib
+
+            w, h, channels = ctypes.c_int(), ctypes.c_int(), ctypes.c_int()
+            data = lib.stbi_load(png_path.encode(), ctypes.byref(w), ctypes.byref(h),
+                                 ctypes.byref(channels), 4)
+            if not data:
+                return png_path
+
+            width, height = w.value, h.value
+            orig_channels = channels.value
+
+            if orig_channels < 4:
+                lib.stbi_image_free(data)
+                return png_path
+
+            bg_r, bg_g, bg_b = self.theme_bg_color[0], self.theme_bg_color[1], self.theme_bg_color[2]
+            pixel_count = width * height
+            raw = ctypes.cast(data, ctypes.POINTER(ctypes.c_ubyte * (pixel_count * 4))).contents
+            pixels = bytearray(raw)
+            lib.stbi_image_free(data)
+
+            # Check if any pixel actually has transparency
+            has_alpha = False
+            for i in range(3, len(pixels), 4):
+                if pixels[i] < 255:
+                    has_alpha = True
+                    break
+            if not has_alpha:
+                return png_path
+
+            # Alpha composite: result = fg * alpha + bg * (1 - alpha)
+            rgb_pixels = bytearray(pixel_count * 3)
+            for i in range(pixel_count):
+                si = i * 4
+                di = i * 3
+                a = pixels[si + 3]
+                if a == 0:
+                    rgb_pixels[di] = bg_b
+                    rgb_pixels[di + 1] = bg_g
+                    rgb_pixels[di + 2] = bg_r
+                elif a == 255:
+                    rgb_pixels[di] = pixels[si + 2]      # B
+                    rgb_pixels[di + 1] = pixels[si + 1]  # G
+                    rgb_pixels[di + 2] = pixels[si]      # R
+                else:
+                    inv_a = 255 - a
+                    rgb_pixels[di] = (pixels[si + 2] * a + bg_b * inv_a + 127) // 255
+                    rgb_pixels[di + 1] = (pixels[si + 1] * a + bg_g * inv_a + 127) // 255
+                    rgb_pixels[di + 2] = (pixels[si] * a + bg_r * inv_a + 127) // 255
+
+            os.makedirs(os.path.dirname(bmp_path), exist_ok=True)
+
+            # Write 24-bit BMP (bottom-up row order)
+            row_size = width * 3
+            padding = (4 - (row_size % 4)) % 4
+            padded_row = row_size + padding
+            pixel_data_size = padded_row * height
+            file_size = 54 + pixel_data_size
+
+            with open(bmp_path, 'wb') as f:
+                f.write(b'BM')
+                f.write(struct.pack('<I', file_size))
+                f.write(struct.pack('<HH', 0, 0))
+                f.write(struct.pack('<I', 54))
+                f.write(struct.pack('<I', 40))
+                f.write(struct.pack('<i', width))
+                f.write(struct.pack('<i', height))
+                f.write(struct.pack('<HH', 1, 24))
+                f.write(struct.pack('<I', 0))
+                f.write(struct.pack('<I', pixel_data_size))
+                f.write(struct.pack('<ii', 2835, 2835))
+                f.write(struct.pack('<II', 0, 0))
+                pad_bytes = b'\x00' * padding
+                for y in range(height - 1, -1, -1):
+                    row_start = y * row_size
+                    f.write(rgb_pixels[row_start:row_start + row_size])
+                    if padding:
+                        f.write(pad_bytes)
+
+            logger.info(f"Flattened PNG: {png_path} -> {bmp_path}")
+            return bmp_path
+
+        except Exception as e:
+            logger.warning(f"Could not flatten PNG {png_path}: {e}")
+            return png_path
+
+    def _show_loading_screen(self, message="Loading..."):
+        """Show a loading message on the pager display during startup."""
+        try:
+            from pagerctl import Pager
+            pager = Pager()
+            pager.init()
+            pager.set_rotation(270)
+            bg = self.theme_bg_color
+            txt = self.theme_text_color
+            bg_color = pager.rgb(bg[0], bg[1], bg[2])
+            txt_color = pager.rgb(txt[0], txt[1], txt[2])
+            pager.clear(bg_color)
+            # Show theme title
+            if hasattr(self, 'font_viking_path') and self.font_viking_path:
+                pager.draw_ttf_centered(80, self.display_name, txt_color, self.font_viking_path, 28.0)
+            # Show loading message
+            font_path = self.font_arial_path if hasattr(self, 'font_arial_path') else ''
+            if font_path:
+                pager.draw_ttf_centered(180, message, txt_color, font_path, 18.0)
+            else:
+                pager.draw_text_centered(180, message, txt_color, 2)
+            pager.flip()
+            pager.cleanup()
+        except Exception as e:
+            logger.debug(f"Could not show loading screen: {e}")
+
+    def _flatten_all_images(self):
+        """Flatten all PNG images with transparency against theme background."""
+        # Collect all PNG paths to check if any work is needed
+        all_pngs = []
+        for path in self.static_images.values():
+            if path.endswith('.png'):
+                all_pngs.append(path)
+        for path in self.status_images.values():
+            if path.endswith('.png'):
+                all_pngs.append(path)
+        for frames in self.image_series.values():
+            for path in frames:
+                if path.endswith('.png'):
+                    all_pngs.append(path)
+
+        if not all_pngs:
+            return
+
+        # Check if any actually need processing (not already cached)
+        needs_work = False
+        cache_dir = os.path.join(self.currentdir, "themes", ".cache")
+        for png_path in all_pngs:
+            rel_path = os.path.relpath(png_path, self.currentdir)
+            bmp_name = os.path.splitext(rel_path)[0] + '.bmp'
+            bmp_path = os.path.join(cache_dir, bmp_name)
+            if not os.path.isfile(bmp_path) or os.path.getmtime(bmp_path) < os.path.getmtime(png_path):
+                needs_work = True
+                break
+
+        if needs_work:
+            self._show_loading_screen("Loading theme images...")
+            logger.info(f"Flattening {len(all_pngs)} PNG images...")
+
+        # Flatten static images
+        for name, path in list(self.static_images.items()):
+            self.static_images[name] = self._flatten_png(path)
+
+        # Flatten status images
+        for b_class, path in list(self.status_images.items()):
+            self.status_images[b_class] = self._flatten_png(path)
+
+        # Flatten animation frames
+        for status, frames in list(self.image_series.items()):
+            self.image_series[status] = [self._flatten_png(f) for f in frames]
+
+        # Clean up stb lib reference
+        if hasattr(self, '_stb_lib'):
+            del self._stb_lib
+
     def load_images(self):
         """Load image paths (not PIL images - display.py will use pagerctl)."""
         try:
@@ -610,16 +823,15 @@ class SharedData:
 
             # Static image paths
             self.static_images = {}
-            static_names = ['bjorn1', 'port', 'frise', 'target', 'vuln', 'connected',
-                          'bluetooth', 'wifi', 'ethernet', 'usb', 'level', 'cred',
-                          'attack', 'attacks', 'gold', 'networkkb', 'zombie', 'data', 'money']
+            static_names = ['target', 'port', 'vuln', 'cred', 'zombie', 'data',
+                          'frise', 'gold', 'level', 'networkkb', 'attacks']
 
             for name in static_names:
-                path = os.path.join(self.staticpicdir, f'{name}.bmp')
-                if os.path.exists(path):
+                path = self._find_image(self.staticpicdir, name)
+                if path:
                     self.static_images[name] = path
                 else:
-                    logger.warning(f"Static image not found: {path}")
+                    logger.warning(f"Static image not found: {name}")
 
             # Load status image paths from actions
             self.status_images = {}
@@ -631,8 +843,8 @@ class SharedData:
                             b_class = action.get('b_class')
                             if b_class:
                                 status_dir = os.path.join(self.statuspicdir, b_class)
-                                image_path = os.path.join(status_dir, f'{b_class}.bmp')
-                                if os.path.exists(image_path):
+                                image_path = self._find_image(status_dir, b_class)
+                                if image_path:
                                     self.status_images[b_class] = image_path
                                     logger.debug(f"Found status image for {b_class}")
             except Exception as e:
@@ -645,7 +857,7 @@ class SharedData:
                 status_dir = os.path.join(self.statuspicdir, status)
                 if os.path.isdir(status_dir):
                     for image_name in sorted(os.listdir(status_dir)):
-                        if image_name.endswith('.bmp') and re.search(r'\d', image_name):
+                        if self._is_image(image_name) and re.search(r'\d', image_name):
                             image_path = os.path.join(status_dir, image_name)
                             self.image_series[status].append(image_path)
                     logger.debug(f"Found {len(self.image_series[status])} animation frames for {status}")
@@ -660,6 +872,83 @@ class SharedData:
         except Exception as e:
             logger.error(f"Error loading image paths: {e}")
             raise
+
+    def load_theme(self):
+        """Load theme resources, falling back to defaults for anything not provided."""
+        theme_name = self.config.get("theme", "bjorn")
+        theme_dir = os.path.join(self.currentdir, "themes", theme_name)
+
+        # Defaults (already set by load_fonts/load_images/initialize_paths)
+        self.display_name = "BJORN"
+        self.menu_title = "Pager Bjorn"
+        self.web_title = "Bjorn Cyberviking"
+        self.theme_bg_color = [255, 255, 255]
+        self.theme_text_color = [0, 0, 0]
+        self.theme_accent_color = [128, 128, 128]
+
+        # Load theme.json if the theme directory exists
+        theme_json_path = os.path.join(theme_dir, "theme.json")
+        if os.path.isfile(theme_json_path):
+            try:
+                with open(theme_json_path, 'r') as f:
+                    theme_data = json.load(f)
+                self.display_name = theme_data.get("display_name", self.display_name)
+                self.menu_title = theme_data.get("menu_title", self.menu_title)
+                self.web_title = theme_data.get("web_title", self.web_title)
+                self.theme_bg_color = theme_data.get("bg_color", self.theme_bg_color)
+                self.theme_text_color = theme_data.get("text_color", self.theme_text_color)
+                self.theme_accent_color = theme_data.get("accent_color", self.theme_accent_color)
+                logger.info(f"Loaded theme '{theme_name}': display_name='{self.display_name}'")
+            except (json.JSONDecodeError, IOError) as e:
+                logger.warning(f"Error reading theme.json for '{theme_name}': {e}")
+        else:
+            logger.info(f"Theme '{theme_name}' not found at {theme_dir}, using defaults")
+
+        # Override title font if theme provides one
+        theme_font = os.path.join(theme_dir, "fonts", "title.TTF")
+        if os.path.isfile(theme_font):
+            self.font_viking_path = theme_font
+            logger.info(f"Theme font: {theme_font}")
+
+        # Override static images (icons, frise, etc.) if theme provides them
+        theme_images_dir = os.path.join(theme_dir, "images")
+        if os.path.isdir(theme_images_dir):
+            for name in list(self.static_images.keys()):
+                theme_img = self._find_image(theme_images_dir, name)
+                if theme_img:
+                    self.static_images[name] = theme_img
+            logger.info(f"Theme static images: {theme_images_dir}")
+
+        # Override comments file if theme provides one
+        theme_comments = os.path.join(theme_dir, "comments", "comments.json")
+        if os.path.isfile(theme_comments):
+            self.commentsfile = theme_comments
+            logger.info(f"Theme comments: {theme_comments}")
+
+        # Override character images (status images + animation frames) if theme provides them
+        theme_status_dir = os.path.join(theme_dir, "images", "status")
+        if os.path.isdir(theme_status_dir):
+            logger.info(f"Theme status images: {theme_status_dir}")
+            # Override main status images (one per action)
+            for b_class, default_path in list(self.status_images.items()):
+                theme_path = self._find_image(os.path.join(theme_status_dir, b_class), b_class)
+                if theme_path:
+                    self.status_images[b_class] = theme_path
+
+            # Override animation frame series
+            for status in list(self.image_series.keys()):
+                theme_action_dir = os.path.join(theme_status_dir, status)
+                if os.path.isdir(theme_action_dir):
+                    theme_frames = []
+                    for image_name in sorted(os.listdir(theme_action_dir)):
+                        if self._is_image(image_name) and re.search(r'\d', image_name):
+                            theme_frames.append(os.path.join(theme_action_dir, image_name))
+                    if theme_frames:
+                        self.image_series[status] = theme_frames
+                        logger.debug(f"Theme override: {len(theme_frames)} frames for {status}")
+
+        # Flatten any PNGs with transparency against theme background color
+        self._flatten_all_images()
 
     def update_bjornstatus(self):
         """Update current status image path."""

@@ -166,6 +166,10 @@ const DashboardTab = {
                 }
             });
 
+            if (data.web_title) {
+                document.title = data.web_title;
+            }
+
             const statusEl = document.getElementById('dash-orch-status');
             const detailEl = document.getElementById('dash-status-detail');
             if (statusEl) {

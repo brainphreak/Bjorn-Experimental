@@ -75,13 +75,20 @@ class BjornMenu:
     def __init__(self, interfaces):
         self.interfaces = interfaces
         self.scan_prefix = 24
+        self.menu_title = "Pager Bjorn"
+        self.title_font = FONT_VIKING
+        self.config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config', 'shared_config.json')
+        self.themes_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'themes')
+        self.available_themes = self._discover_themes()
+        self.active_theme = 'bjorn'
         try:
-            config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config', 'shared_config.json')
-            with open(config_path, 'r') as f:
+            with open(self.config_path, 'r') as f:
                 cfg = json.load(f)
             self.scan_prefix = cfg.get('scan_network_prefix', 24)
+            self.active_theme = cfg.get('theme', 'bjorn')
         except Exception:
             pass
+        self._apply_theme(self.active_theme)
         self.gfx = Pager()
         self.gfx.init()
         self.gfx.set_rotation(270)  # Landscape 480x222
@@ -89,6 +96,47 @@ class BjornMenu:
     def cleanup(self):
         if hasattr(self, 'gfx'):
             self.gfx.cleanup()
+
+    def _discover_themes(self):
+        """Scan themes/ directory for valid theme folders (must contain theme.json)."""
+        themes = []
+        if os.path.isdir(self.themes_dir):
+            for name in sorted(os.listdir(self.themes_dir)):
+                theme_json = os.path.join(self.themes_dir, name, 'theme.json')
+                if os.path.isfile(theme_json):
+                    themes.append(name)
+        if not themes:
+            themes = ['bjorn']
+        return themes
+
+    def _apply_theme(self, theme_name):
+        """Load menu_title and title_font from the given theme."""
+        self.active_theme = theme_name
+        self.menu_title = "Pager Bjorn"
+        self.title_font = FONT_VIKING
+        theme_dir = os.path.join(self.themes_dir, theme_name)
+        theme_json = os.path.join(theme_dir, 'theme.json')
+        if os.path.isfile(theme_json):
+            try:
+                with open(theme_json, 'r') as f:
+                    theme_data = json.load(f)
+                self.menu_title = theme_data.get('menu_title', self.menu_title)
+            except Exception:
+                pass
+        theme_font = os.path.join(theme_dir, 'fonts', 'title.TTF')
+        if os.path.isfile(theme_font):
+            self.title_font = theme_font
+
+    def _save_theme(self, theme_name):
+        """Save the selected theme to shared_config.json."""
+        try:
+            with open(self.config_path, 'r') as f:
+                cfg = json.load(f)
+            cfg['theme'] = theme_name
+            with open(self.config_path, 'w') as f:
+                json.dump(cfg, f, indent=4)
+        except Exception:
+            pass
 
     def _wait_button(self):
         """Wait for a button press using thread-safe event queue."""
@@ -113,16 +161,16 @@ class BjornMenu:
             else:
                 time.sleep(0.016)
 
-    def _draw_main_menu(self, selected, iface_idx, web_ui):
+    def _draw_main_menu(self, selected, iface_idx, web_ui, theme_idx):
         """Draw the main menu screen."""
         self.gfx.clear(Pager.BLACK)
 
-        # Title using Viking font
-        self.gfx.draw_ttf_centered(0, "Pager Bjorn", TITLE_COLOR, FONT_VIKING, 48.0)
+        # Title using active theme font
+        self.gfx.draw_ttf_centered(0, self.menu_title, TITLE_COLOR, self.title_font, 48.0)
 
         # Menu items
         y = 68
-        items = self._get_menu_items(iface_idx, web_ui)
+        items = self._get_menu_items(iface_idx, web_ui, theme_idx)
 
         for i, item in enumerate(items):
             is_selected = (i == selected)
@@ -151,7 +199,7 @@ class BjornMenu:
 
         self.gfx.flip()
 
-    def _get_menu_items(self, iface_idx, web_ui):
+    def _get_menu_items(self, iface_idx, web_ui, theme_idx):
         """Build the list of menu items for drawing."""
         items = [{'label': 'Start Bjorn'}]
 
@@ -178,6 +226,18 @@ class BjornMenu:
             'max_value': 'ON :8000',
         })
 
+        # Theme selector
+        theme_name = self.available_themes[theme_idx] if self.available_themes else 'bjorn'
+        # Find longest theme name for stable alignment
+        max_theme = max(self.available_themes, key=len) if self.available_themes else theme_name
+        items.append({
+            'toggle': True,
+            'label': 'Theme:',
+            'value': theme_name,
+            'value_color': TITLE_COLOR,
+            'max_value': max_theme,
+        })
+
         items.append({'label': 'Clear Data'})
         items.append({'label': 'Exit'})
         return items
@@ -187,19 +247,23 @@ class BjornMenu:
         selected = 0
         iface_idx = 0
         web_ui = True
-        num_options = 5  # Start Bjorn, Interface, Web UI, Clear Data, Exit
+        # Find the index of the active theme
+        theme_idx = 0
+        if self.active_theme in self.available_themes:
+            theme_idx = self.available_themes.index(self.active_theme)
+        num_options = 6  # Start Bjorn, Interface, Web UI, Theme, Clear Data, Exit
 
-        self._draw_main_menu(selected, iface_idx, web_ui)
+        self._draw_main_menu(selected, iface_idx, web_ui, theme_idx)
 
         while True:
             btn = self._wait_button()
 
             if btn == 'UP':
                 selected = (selected - 1) % num_options
-                self._draw_main_menu(selected, iface_idx, web_ui)
+                self._draw_main_menu(selected, iface_idx, web_ui, theme_idx)
             elif btn == 'DOWN':
                 selected = (selected + 1) % num_options
-                self._draw_main_menu(selected, iface_idx, web_ui)
+                self._draw_main_menu(selected, iface_idx, web_ui, theme_idx)
             elif btn in ['LEFT', 'RIGHT']:
                 if selected == 1 and self.interfaces:
                     # Cycle interface
@@ -207,18 +271,27 @@ class BjornMenu:
                         iface_idx = (iface_idx + 1) % len(self.interfaces)
                     else:
                         iface_idx = (iface_idx - 1) % len(self.interfaces)
-                    self._draw_main_menu(selected, iface_idx, web_ui)
+                    self._draw_main_menu(selected, iface_idx, web_ui, theme_idx)
                 elif selected == 2:
                     # Toggle web UI
                     web_ui = not web_ui
-                    self._draw_main_menu(selected, iface_idx, web_ui)
+                    self._draw_main_menu(selected, iface_idx, web_ui, theme_idx)
+                elif selected == 3 and self.available_themes:
+                    # Cycle theme
+                    if btn == 'RIGHT':
+                        theme_idx = (theme_idx + 1) % len(self.available_themes)
+                    else:
+                        theme_idx = (theme_idx - 1) % len(self.available_themes)
+                    self._apply_theme(self.available_themes[theme_idx])
+                    self._save_theme(self.available_themes[theme_idx])
+                    self._draw_main_menu(selected, iface_idx, web_ui, theme_idx)
             elif btn == 'SELECT':
                 if selected == 0:
                     # Start Bjorn
                     if not self.interfaces:
                         self._show_message("No network!", WARNING_COLOR, "Connect to a network first", DIM_COLOR)
                         self._wait_button()
-                        self._draw_main_menu(selected, iface_idx, web_ui)
+                        self._draw_main_menu(selected, iface_idx, web_ui, theme_idx)
                         continue
                     iface = self.interfaces[iface_idx]
                     return {
@@ -229,15 +302,21 @@ class BjornMenu:
                 elif selected == 1 and self.interfaces:
                     # Cycle interface forward on select
                     iface_idx = (iface_idx + 1) % len(self.interfaces)
-                    self._draw_main_menu(selected, iface_idx, web_ui)
+                    self._draw_main_menu(selected, iface_idx, web_ui, theme_idx)
                 elif selected == 2:
                     web_ui = not web_ui
-                    self._draw_main_menu(selected, iface_idx, web_ui)
-                elif selected == 3:
+                    self._draw_main_menu(selected, iface_idx, web_ui, theme_idx)
+                elif selected == 3 and self.available_themes:
+                    # Cycle theme forward on select
+                    theme_idx = (theme_idx + 1) % len(self.available_themes)
+                    self._apply_theme(self.available_themes[theme_idx])
+                    self._save_theme(self.available_themes[theme_idx])
+                    self._draw_main_menu(selected, iface_idx, web_ui, theme_idx)
+                elif selected == 4:
                     # Clear Data submenu
                     self._show_clear_data_menu()
-                    self._draw_main_menu(selected, iface_idx, web_ui)
-                elif selected == 4:
+                    self._draw_main_menu(selected, iface_idx, web_ui, theme_idx)
+                elif selected == 5:
                     # Exit
                     return None
             elif btn == 'BACK':

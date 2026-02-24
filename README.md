@@ -236,6 +236,11 @@ Edit `config/shared_config.json` to customize Bjorn's behavior:
 | `screen_dim_brightness` | 25 | Brightness when dimmed (20-100%) |
 | `screen_dim_timeout` | 60 | Seconds of inactivity before dimming |
 
+### Theme Settings
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `theme` | bjorn | Active theme folder name (see [Themes](#themes) below) |
+
 ### Logging Settings
 | Setting | Default | Description |
 |---------|---------|-------------|
@@ -324,6 +329,101 @@ All data is stored in `/mmc/root/loot/bjorn/`:
     └── vulnerabilities/   # Nmap vulnerability scan results
 ```
 
+## Themes
+
+Bjorn supports a theme system that lets you customize the display name, fonts, colors, animations, and commentary personality. Themes live in `themes/` and are selected via the `theme` setting in `shared_config.json` or the web UI Config tab.
+
+### Included Themes
+
+| Theme | Description |
+|-------|-------------|
+| `bjorn` | Default Viking theme with Norse personality and Celtic knot divider |
+| `clown` | CLOWNSEC theme with jester personality, circus commentary, and random HONKs |
+
+### Switching Themes
+
+Set the `theme` value in `config/shared_config.json` to the theme folder name:
+
+```json
+"theme": "clown"
+```
+
+Or change it from the **Config** tab in the web UI under the **Theme** section.
+
+### Creating a Custom Theme
+
+Create a new folder under `themes/` with the following structure:
+
+```
+themes/
+  my_theme/
+    theme.json               # Required - theme metadata and colors
+    fonts/
+      title.TTF              # Custom title font
+    images/
+      frise.bmp              # Divider bar image
+      target.bmp             # Stats icons (target, port, vuln, cred, etc.)
+      ...
+      status/                # Character animations per action
+        IDLE/
+          IDLE.png            # Supports PNG (with alpha) and BMP
+          IDLE1.png
+          ...
+        NetworkScanner/
+          NetworkScanner.png
+          ...
+        SSHBruteforce/
+          ...
+    comments/
+      comments.json          # Commentary lines by action type
+```
+
+### theme.json Format
+
+```json
+{
+    "display_name": "MYTHEME",
+    "menu_title": "My Theme",
+    "web_title": "My Theme - Cyber Tool",
+    "bg_color": [255, 255, 255],
+    "text_color": [0, 0, 0],
+    "accent_color": [128, 128, 128]
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `display_name` | Shown in the LCD header (e.g., "BJORN", "CLOWNSEC") |
+| `menu_title` | Shown on the startup menu screen |
+| `web_title` | Browser tab title for the web UI |
+| `bg_color` | Background color `[R, G, B]` for the LCD display |
+| `text_color` | Text color `[R, G, B]` for the LCD display |
+| `accent_color` | Accent color `[R, G, B]` for dividers and highlights |
+
+### Image Format
+
+- **BMP** images are loaded directly
+- **PNG** images with alpha transparency are automatically composited against the theme's `bg_color` and cached as BMP on first load (a loading screen is shown during initial processing)
+- Status animation frames are numbered sequentially (e.g., `IDLE.png`, `IDLE1.png`, `IDLE2.png`, ...)
+- Any resources not provided by the theme fall back to the defaults in `resources/`
+
+### Comments Format
+
+The `comments.json` file contains commentary lines grouped by action type. Each action key maps to a list of strings that are randomly displayed during that action:
+
+```json
+{
+    "IDLE": ["Waiting for targets...", "Nothing to do..."],
+    "NetworkScanner": ["Scanning the network...", "Looking for hosts..."],
+    "SSHBruteforce": ["Trying SSH credentials...", "Knocking on port 22..."],
+    ...
+}
+```
+
+Supported action keys: `IDLE`, `NetworkScanner`, `NmapVulnScanner`, `SSHBruteforce`, `FTPBruteforce`, `TelnetBruteforce`, `SMBBruteforce`, `SQLBruteforce`, `RDPBruteforce`, `StealFilesSSH`, `StealFilesFTP`, `StealFilesSMB`, `StealFilesTelnet`, `StealDataSQL`, `LogStandalone`, `LogStandalone2`, `ZombifySSH`.
+
+---
+
 ## Architecture
 
 ```
@@ -384,6 +484,9 @@ pager_bjorn/
 ├── config/
 │   ├── shared_config.json
 │   └── actions.json
+├── themes/                # Theme packs
+│   ├── bjorn/             # Default Viking theme
+│   └── clown/             # CLOWNSEC jester theme
 ├── web/                   # Web UI (single-page app)
 │   ├── index.html         # SPA shell
 │   ├── css/

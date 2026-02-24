@@ -53,8 +53,8 @@
     "web_delay": 2,
     "comment_delaymin": 15,
     "comment_delaymax": 30,
-    "image_display_delaymin": 2,
-    "image_display_delaymax": 8,
+    "image_display_delaymin": 10,
+    "image_display_delaymax": 15,
     "timewait_smb": 0,
     "timewait_ssh": 0,
     "timewait_telnet": 0,
@@ -78,5 +78,8 @@
     "__title_display__": "Display",
     "screen_brightness": 80,
     "screen_dim_brightness": 25,
-    "screen_dim_timeout": 60
+    "screen_dim_timeout": 60,
+
+    "__title_theme__": "Theme",
+    "theme": "bjorn"
 }

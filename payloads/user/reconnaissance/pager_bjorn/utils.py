@@ -918,6 +918,7 @@ class WebUtils:
                 'manual_attack_running': getattr(sd, 'manual_attack_running', False),
                 'manual_attack_name': getattr(sd, 'manual_attack_name', None),
                 'orchestrator_should_exit': getattr(sd, 'orchestrator_should_exit', False),
+                'web_title': getattr(sd, 'web_title', 'Bjorn Cyberviking'),
             }
             handler.send_response(200)
             handler.send_header("Content-type", "application/json")

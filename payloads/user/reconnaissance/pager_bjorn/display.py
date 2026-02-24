@@ -90,10 +90,16 @@ class Display:
             logger.error(f"Error initializing pagerctl: {e}")
             raise
 
-        # Colors
+        # Colors from theme (bg, text, accent) with hardcoded fallbacks
+        bg = self.shared_data.theme_bg_color
+        txt = self.shared_data.theme_text_color
+        acc = self.shared_data.theme_accent_color
+        self.BG_COLOR = self.pager.rgb(bg[0], bg[1], bg[2])
+        self.TEXT_COLOR = self.pager.rgb(txt[0], txt[1], txt[2])
+        self.ACCENT_COLOR = self.pager.rgb(acc[0], acc[1], acc[2])
+        # Keep BLACK/WHITE for menu dialogs (always white-on-black)
         self.BLACK = self.pager.BLACK
         self.WHITE = self.pager.WHITE
-        self.GRAY = self.pager.rgb(128, 128, 128)
 
         # Fonts
         self.font_arial = self.shared_data.font_arial_path
@@ -253,28 +259,28 @@ class Display:
         for title, path in launchers:
             options.append((f"> {title}", blue_color, (42, path)))
 
-        options.append(("Exit Bjorn", red_color, 0))
+        options.append((f"Exit {self.shared_data.display_name}", red_color, 0))
 
         num_options = len(options)
         selected = 0
 
         def draw_menu():
-            self.pager.fill_rect(0, 0, self.width, self.height, self.WHITE)
+            self.pager.fill_rect(0, 0, self.width, self.height, self.BG_COLOR)
 
             # Draw dialog box
             box_y = int(self.height * 0.10)
             box_h = int(self.height * 0.80)
-            self.pager.fill_rect(10, box_y, self.width - 20, box_h, self.WHITE)
-            self.pager.rect(10, box_y, self.width - 20, box_h, self.BLACK)
-            self.pager.rect(12, box_y + 2, self.width - 24, box_h - 4, self.BLACK)
+            self.pager.fill_rect(10, box_y, self.width - 20, box_h, self.BG_COLOR)
+            self.pager.rect(10, box_y, self.width - 20, box_h, self.TEXT_COLOR)
+            self.pager.rect(12, box_y + 2, self.width - 24, box_h - 4, self.TEXT_COLOR)
 
             # Title
             title_y = box_y + 15
-            self.pager.draw_ttf_centered(title_y, "MENU", self.BLACK, self.font_viking, int(12 * self.sy))
+            self.pager.draw_ttf_centered(title_y, "MENU", self.TEXT_COLOR, self.font_viking, int(12 * self.sy))
 
             # Brightness section
             bright_y = box_y + int(30 * self.sy)
-            self.pager.draw_ttf_centered(bright_y, "BRIGHTNESS", self.BLACK, self.font_arial, int(9 * self.sy))
+            self.pager.draw_ttf_centered(bright_y, "BRIGHTNESS", self.TEXT_COLOR, self.font_arial, int(9 * self.sy))
 
             # Brightness bar
             bar_y = bright_y + int(22 * self.sy)
@@ -283,16 +289,16 @@ class Display:
             bar_h = int(12 * self.sy)
 
             # Bar background
-            self.pager.fill_rect(bar_x, bar_y, bar_w, bar_h, self.GRAY)
+            self.pager.fill_rect(bar_x, bar_y, bar_w, bar_h, self.ACCENT_COLOR)
             # Bar fill
             fill_w = int(bar_w * current_brightness / 100)
-            self.pager.fill_rect(bar_x, bar_y, fill_w, bar_h, self.BLACK)
+            self.pager.fill_rect(bar_x, bar_y, fill_w, bar_h, self.TEXT_COLOR)
             # Bar outline
-            self.pager.rect(bar_x, bar_y, bar_w, bar_h, self.BLACK)
+            self.pager.rect(bar_x, bar_y, bar_w, bar_h, self.TEXT_COLOR)
 
             # Brightness percentage
             pct_y = bar_y + bar_h + 5
-            self.pager.draw_ttf_centered(pct_y, f"{current_brightness}%", self.BLACK, self.font_arial, int(10 * self.sy))
+            self.pager.draw_ttf_centered(pct_y, f"{current_brightness}%", self.TEXT_COLOR, self.font_arial, int(10 * self.sy))
 
             # Menu buttons - stack vertically
             btn_w = 120
@@ -309,7 +315,7 @@ class Display:
 
                 if i == selected:
                     # Draw selection highlight
-                    self.pager.fill_rect(btn_x - 4, btn_y - 4, btn_w + 8, btn_h + 8, self.BLACK)
+                    self.pager.fill_rect(btn_x - 4, btn_y - 4, btn_w + 8, btn_h + 8, self.TEXT_COLOR)
 
                 self.pager.fill_rect(btn_x, btn_y, btn_w, btn_h, color)
 
@@ -317,7 +323,7 @@ class Display:
                 text_w = self.pager.ttf_width(label, self.font_arial, font_size)
                 text_x = btn_x + (btn_w - text_w) // 2
                 text_y = btn_y + (btn_h - font_size) // 2
-                self.pager.draw_ttf(text_x, text_y, label, self.WHITE, self.font_arial, font_size)
+                self.pager.draw_ttf(text_x, text_y, label, self.BG_COLOR, self.font_arial, font_size)
 
             self.pager.flip()
 
@@ -474,6 +480,24 @@ class Display:
         except Exception as e:
             logger.debug(f"LED update error: {e}")
 
+    def _wrap_text_pixel(self, text, font_path, font_size, max_width):
+        """Wrap text based on actual pixel width using ttf_width."""
+        words = text.split()
+        lines = []
+        line = ''
+        for word in words:
+            test = line + (' ' if line else '') + word
+            if self.pager.ttf_width(test, font_path, font_size) <= max_width:
+                line = test
+            else:
+                if line:
+                    lines.append(line)
+                # If a single word is wider than max, just add it anyway
+                line = word
+        if line:
+            lines.append(line)
+        return lines
+
     def sanitize_text(self, text):
         """Fix encoding issues with special characters."""
         if not text:
@@ -515,46 +539,24 @@ class Display:
         return False
 
     def draw_header(self):
-        """Header: WiFi, BT, BJORN, OTG, DHCP icons."""
+        """Header: centered theme title."""
         y = 0
         h = int(20 * self.sy)  # ~38px
 
-        self.pager.fill_rect(0, y, self.width, h, self.WHITE)
-        self.pager.hline(0, h - 1, self.width, self.BLACK)
+        self.pager.fill_rect(0, y, self.width, h, self.BG_COLOR)
+        self.pager.hline(0, h - 1, self.width, self.TEXT_COLOR)
 
-        # Icon sizes
-        left_icon_size = int(10 * self.sy)
-        right_icon_size = int(10 * self.sy)  # Match left side
-
-        # Left side icons: WiFi, Bluetooth - with gap between them
-        x = 2
-        icon_y = (h - left_icon_size) // 2
-
-        # WiFi icon
-        self.draw_icon_scaled(x, icon_y, left_icon_size, left_icon_size, 'wifi')
-        x += left_icon_size + 6  # Added gap
-
-        # Bluetooth icon
-        self.draw_icon_scaled(x, icon_y, left_icon_size, left_icon_size, 'bluetooth')
-
-        # Center: BJORN title - moved down 3 pixels from top
+        # Center: theme title
         title_font_size = int(14 * self.sy)
-        self.pager.draw_ttf_centered(int(5 * self.sy), "BJORN", self.BLACK, self.font_viking, title_font_size)
-
-        # Right side icons: OTG/USB, DHCP/Connected - with gap between them
-        icon_y_r = (h - right_icon_size) // 2
-        x = self.width - right_icon_size - 2
-        self.draw_icon_scaled(x, icon_y_r, right_icon_size, right_icon_size, 'connected')
-        x -= right_icon_size + 6  # Added gap
-        self.draw_icon_scaled(x, icon_y_r, right_icon_size, right_icon_size, 'usb')
+        self.pager.draw_ttf_centered(int(5 * self.sy), self.shared_data.display_name, self.TEXT_COLOR, self.font_viking, title_font_size)
 
     def draw_stats_grid(self):
         """3x2 stats grid with icons and BIG numbers."""
         y_start = int(22 * self.sy)
         h = int(40 * self.sy)
 
-        self.pager.fill_rect(0, y_start, self.width, h, self.WHITE)
-        self.pager.rect(0, y_start, self.width, h, self.BLACK)
+        self.pager.fill_rect(0, y_start, self.width, h, self.BG_COLOR)
+        self.pager.rect(0, y_start, self.width, h, self.TEXT_COLOR)
 
         col_w = self.width // 3
         row_h = h // 2
@@ -585,20 +587,20 @@ class Display:
                 # Number (big)
                 text_x = icon_x + icon_size + 4
                 text_y = cy + (row_h - font_size) // 2
-                self.pager.draw_ttf(text_x, text_y, str(value), self.BLACK, self.font_arial, font_size)
+                self.pager.draw_ttf(text_x, text_y, str(value), self.TEXT_COLOR, self.font_arial, font_size)
 
         # Grid lines
         for i in range(1, 3):
-            self.pager.vline(i * col_w, y_start, h, self.BLACK)
-        self.pager.hline(0, y_start + row_h, self.width, self.BLACK)
+            self.pager.vline(i * col_w, y_start, h, self.TEXT_COLOR)
+        self.pager.hline(0, y_start + row_h, self.width, self.TEXT_COLOR)
 
     def draw_status_area(self):
         """Status: action icon + status text (LARGE)."""
         y_start = int(62 * self.sy)
         h = int(28 * self.sy)
 
-        self.pager.fill_rect(0, y_start, self.width, h, self.WHITE)
-        self.pager.rect(0, y_start, self.width, h, self.BLACK)
+        self.pager.fill_rect(0, y_start, self.width, h, self.BG_COLOR)
+        self.pager.rect(0, y_start, self.width, h, self.TEXT_COLOR)
 
         # Status icon (larger)
         icon_size = int(24 * self.sy)
@@ -612,37 +614,45 @@ class Display:
             except:
                 pass
 
-        # Status text (LARGE)
+        # Status text (auto-sized to fit available width)
         text_x = icon_x + icon_size + 8
-        main_font = int(12 * self.sy)  # Larger
-        sub_font = int(10 * self.sy)   # Larger
+        max_text_w = self.width - text_x - 4
+        main_font = int(12 * self.sy)
+        sub_font = int(10 * self.sy)
 
-        status_text = self.shared_data.bjornstatustext[:16]
-        self.pager.draw_ttf(text_x, y_start + 4, status_text, self.BLACK, self.font_arial, main_font)
+        status_text = self.shared_data.bjornstatustext
+        # Shrink font until text fits
+        font_size = main_font
+        while font_size > 10 and self.pager.ttf_width(status_text, self.font_arial, font_size) > max_text_w:
+            font_size -= 1
+        self.pager.draw_ttf(text_x, y_start + 4, status_text, self.TEXT_COLOR, self.font_arial, font_size)
 
-        status_text2 = self.shared_data.bjornstatustext2[:20]
-        self.pager.draw_ttf(text_x, y_start + 4 + main_font + 2, status_text2, self.GRAY, self.font_arial, sub_font)
+        status_text2 = self.shared_data.bjornstatustext2
+        font_size2 = sub_font
+        while font_size2 > 8 and self.pager.ttf_width(status_text2, self.font_arial, font_size2) > max_text_w:
+            font_size2 -= 1
+        self.pager.draw_ttf(text_x, y_start + 4 + main_font + 2, status_text2, self.ACCENT_COLOR, self.font_arial, font_size2)
 
     def draw_dialogue_zone(self):
         """Viking speech - VERY LARGE text."""
         y_start = int(90 * self.sy)
         h = int(70 * self.sy)
 
-        self.pager.fill_rect(0, y_start, self.width, h, self.WHITE)
-        self.pager.rect(0, y_start, self.width, h, self.BLACK)
+        self.pager.fill_rect(0, y_start, self.width, h, self.BG_COLOR)
+        self.pager.rect(0, y_start, self.width, h, self.TEXT_COLOR)
 
-        # Dialogue text - slightly smaller to prevent cutoff
-        font_size = int(12 * self.sy)  # Reduced from 14
+        # Dialogue text - pixel-based wrapping for proportional fonts
+        font_size = int(12 * self.sy)
         line_height = int(14 * self.sy)
-        max_chars = 21  # Tight fit to prevent any cutoff
+        text_x = 8
+        max_w = self.width - text_x * 2  # margins on both sides
 
         text_y = y_start + 8
         if hasattr(self.shared_data, 'bjornsay') and self.shared_data.bjornsay:
-            # Sanitize text to fix apostrophe/quote encoding issues
             clean_text = self.sanitize_text(self.shared_data.bjornsay)
-            lines = self.shared_data.wrap_text(clean_text, max_chars=max_chars)
+            lines = self._wrap_text_pixel(clean_text, self.font_arial, font_size, max_w)
             for i, line in enumerate(lines[:4]):  # Max 4 lines
-                self.pager.draw_ttf(8, text_y + i * line_height, line, self.BLACK, self.font_arial, font_size)
+                self.pager.draw_ttf(text_x, text_y + i * line_height, line, self.TEXT_COLOR, self.font_arial, font_size)
 
     def draw_frise(self):
         """Celtic knot ribbon - BELOW dialogue, FULL WIDTH."""
@@ -657,8 +667,8 @@ class Display:
                 self.pager.draw_image_file_scaled(0, y, self.width, frise_h, frise_path)
             except:
                 # Fallback: draw a decorative line
-                self.pager.hline(0, y + 5, self.width, self.BLACK)
-                self.pager.hline(0, y + 7, self.width, self.BLACK)
+                self.pager.hline(0, y + 5, self.width, self.TEXT_COLOR)
+                self.pager.hline(0, y + 7, self.width, self.TEXT_COLOR)
 
     def draw_character_and_corner_stats(self):
         """Viking character in center with stats in corners around it."""
@@ -678,7 +688,7 @@ class Display:
                 self.pager.draw_image_file_scaled(char_x, char_y, char_w, char_h, self.main_image_path)
             except Exception as e:
                 logger.debug(f"Could not draw character: {e}")
-                self.pager.draw_ttf(char_x + 20, char_y + 30, "?", self.BLACK, self.font_viking, 36)
+                self.pager.draw_ttf(char_x + 20, char_y + 30, "?", self.TEXT_COLOR, self.font_viking, 36)
 
         # Corner stats around the viking
         # Icon size and font for corner stats
@@ -689,13 +699,13 @@ class Display:
         x = 4
         y = char_y + 15  # Moved up from 25 to 15
         self.draw_icon_scaled(x, y, icon_size, icon_size, 'gold')
-        self.pager.draw_ttf(x, y + icon_size + 2, str(self.shared_data.coinnbr), self.BLACK, self.font_arial, num_font)
+        self.pager.draw_ttf(x, y + icon_size + 2, str(self.shared_data.coinnbr), self.TEXT_COLOR, self.font_arial, num_font)
 
         # BOTTOM-LEFT: Level
         x = 4
         y = char_y + char_h - icon_size - num_font - 4
         self.draw_icon_scaled(x, y, icon_size, icon_size, 'level')
-        self.pager.draw_ttf(x, y + icon_size + 2, str(self.shared_data.levelnbr), self.BLACK, self.font_arial, num_font)
+        self.pager.draw_ttf(x, y + icon_size + 2, str(self.shared_data.levelnbr), self.TEXT_COLOR, self.font_arial, num_font)
 
         # TOP-RIGHT: Network KB (known hosts) - adjusted position
         x = self.width - icon_size - 4
@@ -703,14 +713,14 @@ class Display:
         self.draw_icon_scaled(x, y, icon_size, icon_size, 'networkkb')
         # Number below icon, right-aligned
         num_text = str(self.shared_data.networkkbnbr)
-        self.pager.draw_ttf(x, y + icon_size + 2, num_text, self.BLACK, self.font_arial, num_font)
+        self.pager.draw_ttf(x, y + icon_size + 2, num_text, self.TEXT_COLOR, self.font_arial, num_font)
 
         # BOTTOM-RIGHT: Attacks
         x = self.width - icon_size - 4
         y = char_y + char_h - icon_size - num_font - 4
         self.draw_icon_scaled(x, y, icon_size, icon_size, 'attacks')
         num_text = str(self.shared_data.attacksnbr)
-        self.pager.draw_ttf(x, y + icon_size + 2, num_text, self.BLACK, self.font_arial, num_font)
+        self.pager.draw_ttf(x, y + icon_size + 2, num_text, self.TEXT_COLOR, self.font_arial, num_font)
 
     def render_frame(self):
         """Render complete frame matching original Bjorn."""
@@ -718,7 +728,7 @@ class Display:
         if self.dialog_showing:
             return
 
-        self.pager.clear(self.WHITE)
+        self.pager.clear(self.BG_COLOR)
 
         self.draw_header()
         self.draw_stats_grid()
