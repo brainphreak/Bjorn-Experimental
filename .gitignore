@@ -4,6 +4,8 @@
 # Python bytecode (regenerated automatically)
 __pycache__/
 *.pyc
+# But keep bundled .pyc in lib/ (these are the only form of the code for vendored packages)
+!payloads/user/reconnaissance/pager_bjorn/lib/**/*.pyc
 
 # IDE
 .idea/
