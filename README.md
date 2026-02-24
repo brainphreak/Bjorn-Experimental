@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="bjorn.jpg" width="500" alt="Bjorn - Payload for the Hak5 WiFi Pineapple Pager">
+  <img src="bjorn-themes.png" width="500" alt="Bjorn - Payload for the Hak5 WiFi Pineapple Pager - Now With Theme Support">
 </p>
 
 A port/rewrite of [Bjorn](https://github.com/infinition/Bjorn) - the autonomous network reconnaissance Tamagotchi - for the WiFi Pineapple Pager.
