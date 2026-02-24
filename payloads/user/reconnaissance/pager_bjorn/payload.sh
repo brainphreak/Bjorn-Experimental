@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 # Title: PagerBjorn
 # Description: Autonomous network reconnaissance companion for WiFi Pineapple Pager - Network scanning, brute force, and data exfiltration with Viking personality
 # Author: brAinphreAk
@@ -20,13 +20,7 @@ cd "$PAYLOAD_DIR" || {
 # Check bundled locations first, then PAGERCTL utilities dir
 #
 PAGERCTL_FOUND=false
-PAGERCTL_SEARCH_PATHS=(
-    "$PAYLOAD_DIR/lib"
-    "$PAYLOAD_DIR"
-    "/mmc/root/payloads/user/utilities/PAGERCTL"
-)
-
-for dir in "${PAGERCTL_SEARCH_PATHS[@]}"; do
+for dir in "$PAYLOAD_DIR/lib" "$PAYLOAD_DIR" "/mmc/root/payloads/user/utilities/PAGERCTL"; do
     if [ -f "$dir/libpagerctl.so" ] && [ -f "$dir/pagerctl.py" ]; then
         PAGERCTL_DIR="$dir"
         PAGERCTL_FOUND=true
@@ -41,7 +35,7 @@ if [ "$PAGERCTL_FOUND" = false ]; then
     LOG "red" "libpagerctl.so and pagerctl.py not found!"
     LOG ""
     LOG "Searched:"
-    for dir in "${PAGERCTL_SEARCH_PATHS[@]}"; do
+    for dir in "$PAYLOAD_DIR/lib" "$PAYLOAD_DIR" "/mmc/root/payloads/user/utilities/PAGERCTL"; do
         LOG "  $dir"
     done
     LOG ""
@@ -184,15 +178,12 @@ check_dependencies
 
 # Check network connectivity (at least one interface with IP)
 HAS_NETWORK=false
-while IFS= read -r line; do
-    if [[ "$line" =~ inet\ ([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+) ]]; then
-        IP="${BASH_REMATCH[1]}"
-        if [[ "$IP" != "127.0.0.1" ]]; then
-            HAS_NETWORK=true
-            break
-        fi
+for IP in $(ip -4 addr 2>/dev/null | grep 'inet ' | awk '{print $2}' | cut -d/ -f1); do
+    if [ "$IP" != "127.0.0.1" ]; then
+        HAS_NETWORK=true
+        break
     fi
-done < <(ip addr 2>/dev/null)
+done
 
 if [ "$HAS_NETWORK" = false ]; then
     LOG ""
@@ -261,7 +252,7 @@ while true; do
         NEXT_SCRIPT=$(cat "$NEXT_PAYLOAD_FILE")
         rm -f "$NEXT_PAYLOAD_FILE"
         if [ -f "$NEXT_SCRIPT" ]; then
-            bash "$NEXT_SCRIPT"
+            sh "$NEXT_SCRIPT"
             # Only loop back to PagerBjorn if launched app exits 42
             [ $? -eq 42 ] && continue
         fi

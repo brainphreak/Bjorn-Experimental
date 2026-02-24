@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 # Title: Pagergotchi
 # Requires: /root/payloads/user/reconnaissance/pagergotchi
 
