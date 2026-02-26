@@ -17,10 +17,10 @@ cd "$PAYLOAD_DIR" || {
 
 #
 # Find and setup pagerctl dependencies (libpagerctl.so + pagerctl.py)
-# Check bundled locations first, then PAGERCTL utilities dir
+# Payload root is authoritative — check it first, then lib/, then external PAGERCTL
 #
 PAGERCTL_FOUND=false
-for dir in "$PAYLOAD_DIR/lib" "$PAYLOAD_DIR" "/mmc/root/payloads/user/utilities/PAGERCTL"; do
+for dir in "$PAYLOAD_DIR" "$PAYLOAD_DIR/lib" "/mmc/root/payloads/user/utilities/PAGERCTL"; do
     if [ -f "$dir/libpagerctl.so" ] && [ -f "$dir/pagerctl.py" ]; then
         PAGERCTL_DIR="$dir"
         PAGERCTL_FOUND=true
@@ -35,20 +35,20 @@ if [ "$PAGERCTL_FOUND" = false ]; then
     LOG "red" "libpagerctl.so and pagerctl.py not found!"
     LOG ""
     LOG "Searched:"
-    for dir in "$PAYLOAD_DIR/lib" "$PAYLOAD_DIR" "/mmc/root/payloads/user/utilities/PAGERCTL"; do
+    for dir in "$PAYLOAD_DIR" "$PAYLOAD_DIR/lib" "/mmc/root/payloads/user/utilities/PAGERCTL"; do
         LOG "  $dir"
     done
     LOG ""
     LOG "Install PAGERCTL payload or copy files to:"
-    LOG "  $PAYLOAD_DIR/lib/"
+    LOG "  $PAYLOAD_DIR/"
     LOG ""
     LOG "Press any button to exit..."
     WAIT_FOR_INPUT >/dev/null 2>&1
     exit 1
 fi
 
-# If pagerctl files aren't in our lib dir, copy them there
-if [ "$PAGERCTL_DIR" != "$PAYLOAD_DIR/lib" ]; then
+# Only copy to lib/ if pagerctl was found externally (not bundled in payload)
+if [ "$PAGERCTL_DIR" != "$PAYLOAD_DIR" ] && [ "$PAGERCTL_DIR" != "$PAYLOAD_DIR/lib" ]; then
     mkdir -p "$PAYLOAD_DIR/lib" 2>/dev/null
     cp "$PAGERCTL_DIR/libpagerctl.so" "$PAYLOAD_DIR/lib/" 2>/dev/null
     cp "$PAGERCTL_DIR/pagerctl.py" "$PAYLOAD_DIR/lib/" 2>/dev/null
