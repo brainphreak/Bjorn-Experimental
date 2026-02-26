@@ -17,7 +17,6 @@ Each theme lives in its own subdirectory under `themes/` and is selected via the
 | `image_display_delaymax` | number | Maximum seconds between animation frame changes |
 | `comment_delaymin` | number | Minimum seconds between LCD comment updates |
 | `comment_delaymax` | number | Maximum seconds between LCD comment updates |
-| `preferred_orientation` | string | Optional preferred screen orientation |
 | `layout_portrait` | object | Optional layout coordinate overrides for portrait mode |
 | `layout_landscape` | object | Optional layout coordinate overrides for landscape mode |
 
