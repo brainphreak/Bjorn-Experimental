@@ -143,7 +143,10 @@ const ConfigTab = {
         // Display
         'screen_brightness': 'Screen Brightness (0-100)',
         'screen_dim_brightness': 'Dimmed Brightness (0-100)',
-        'screen_dim_timeout': 'Dim Screen After Inactivity (seconds)'
+        'screen_dim_timeout': 'Dim Screen After Inactivity (seconds)',
+
+        // Theme
+        'override_theme_delays': 'Override Theme Animation Delays'
     },
 
     getDisplayName(key) {

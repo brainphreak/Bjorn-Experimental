@@ -4,5 +4,10 @@
     "web_title": "Bjorn Cyberviking",
     "bg_color": [255, 255, 255],
     "text_color": [0, 0, 0],
-    "accent_color": [128, 128, 128]
+    "accent_color": [128, 128, 128],
+    "animation_mode": "random",
+    "image_display_delaymin": 2,
+    "image_display_delaymax": 8,
+    "comment_delaymin": 15,
+    "comment_delaymax": 30
 }

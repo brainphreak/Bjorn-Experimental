@@ -4,5 +4,10 @@
     "web_title": "CLOWNSEC",
     "bg_color": [255, 255, 255],
     "text_color": [0, 0, 0],
-    "accent_color": [128, 128, 128]
+    "accent_color": [128, 128, 128],
+    "animation_mode": "sequential",
+    "image_display_delaymin": 1,
+    "image_display_delaymax": 3,
+    "comment_delaymin": 8,
+    "comment_delaymax": 20
 }

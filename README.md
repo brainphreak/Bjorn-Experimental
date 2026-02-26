@@ -240,6 +240,7 @@ Edit `config/shared_config.json` to customize Bjorn's behavior:
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `theme` | bjorn | Active theme folder name (see [Themes](#themes) below) |
+| `override_theme_delays` | false | When enabled, global config delay values are used instead of per-theme values |
 
 ### Logging Settings
 | Setting | Default | Description |
@@ -387,7 +388,12 @@ themes/
     "web_title": "My Theme - Cyber Tool",
     "bg_color": [255, 255, 255],
     "text_color": [0, 0, 0],
-    "accent_color": [128, 128, 128]
+    "accent_color": [128, 128, 128],
+    "animation_mode": "random",
+    "image_display_delaymin": 2,
+    "image_display_delaymax": 8,
+    "comment_delaymin": 15,
+    "comment_delaymax": 30
 }
 ```
 
@@ -399,6 +405,13 @@ themes/
 | `bg_color` | Background color `[R, G, B]` for the LCD display |
 | `text_color` | Text color `[R, G, B]` for the LCD display |
 | `accent_color` | Accent color `[R, G, B]` for dividers and highlights |
+| `animation_mode` | How status animation frames are played: `"random"` (default) picks a random frame each cycle, `"sequential"` plays frames in order for smooth animation |
+| `image_display_delaymin` | Minimum seconds between animation frame changes (overrides global config) |
+| `image_display_delaymax` | Maximum seconds between animation frame changes (overrides global config) |
+| `comment_delaymin` | Minimum seconds between LCD comment updates (overrides global config) |
+| `comment_delaymax` | Maximum seconds between LCD comment updates (overrides global config) |
+
+The four delay fields are optional. When provided, they override the global config values for that theme. To force the global config values to take effect regardless of theme settings, enable the **Override Theme Animation Delays** toggle (`override_theme_delays`) in the web UI Config tab.
 
 ### Image Format
 

@@ -21,7 +21,8 @@ class Commentaireia:
     def __init__(self):
         self.shared_data = shared_data
         self.last_comment_time = 0  # Initialize last_comment_time
-        self.comment_delay = random.randint(self.shared_data.comment_delaymin, self.shared_data.comment_delaymax)  # Initialize comment_delay
+        cmin, cmax = self.shared_data.get_effective_comment_delays()
+        self.comment_delay = random.randint(cmin, cmax)  # Initialize comment_delay
         self.last_theme = None  # Initialize last_theme
         self.themes = self.load_comments(self.shared_data.commentsfile)  # Load themes from JSON file
 
