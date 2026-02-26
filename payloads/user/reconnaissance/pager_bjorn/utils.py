@@ -347,6 +347,8 @@ class WebUtils:
                     try:
                         self.network_scanner.scan(network) if network else self.network_scanner.scan()
                     finally:
+                        self.shared_data.bjornorch_status = "IDLE"
+                        self.shared_data.bjornstatustext2 = ""
                         self.shared_data.manual_attack_running = False
                         self.shared_data.manual_attack_name = None
                         self.shared_data.orchestrator_should_exit = False
@@ -369,6 +371,8 @@ class WebUtils:
                     try:
                         self.scan_ports_single_ip(ip)
                     finally:
+                        self.shared_data.bjornorch_status = "IDLE"
+                        self.shared_data.bjornstatustext2 = ""
                         self.shared_data.manual_attack_running = False
                         self.shared_data.manual_attack_name = None
                         self.shared_data.orchestrator_should_exit = False
@@ -423,6 +427,7 @@ class WebUtils:
                         self.logger.error(f"Error in vulnerability scan thread: {e}")
                     finally:
                         self.shared_data.bjornorch_status = "IDLE"
+                        self.shared_data.bjornstatustext2 = ""
                         self.shared_data.manual_attack_running = False
                         self.shared_data.manual_attack_name = None
                         self.shared_data.orchestrator_should_exit = False
@@ -449,6 +454,8 @@ class WebUtils:
                     except Exception as e:
                         self.logger.error(f"Error in RunAllAttacks thread: {e}")
                     finally:
+                        self.shared_data.bjornorch_status = "IDLE"
+                        self.shared_data.bjornstatustext2 = ""
                         self.shared_data.manual_attack_running = False
                         self.shared_data.manual_attack_name = None
                         self.shared_data.orchestrator_should_exit = False
@@ -1276,22 +1283,33 @@ class WebUtils:
         handler.wfile.write(json.dumps(self.shared_data.config).encode('utf-8'))
 
     def serve_image(self, handler):
-        """Serve raw RGB565 framebuffer data for client-side rendering."""
+        """Serve raw RGB565 framebuffer data for client-side rendering.
+
+        Response body: 6-byte header followed by raw RGB565 pixel data.
+        Header: uint16 LE fb_width (222) + uint16 LE fb_height (480) + uint16 LE rotation.
+        The framebuffer memory layout is always 222x480 regardless of screen rotation.
+        The client uses the rotation value to display the image correctly.
+        """
         try:
             fb_path = '/dev/fb0'
-            fb_size = 222 * 480 * 2  # RGB565 = 2 bytes/pixel
+            fb_width = 222
+            fb_height = 480
+            fb_size = fb_width * fb_height * 2  # RGB565 = 2 bytes/pixel
+            rotation = getattr(self.shared_data, 'screen_rotation', 0)
 
             with open(fb_path, 'rb') as fb:
                 raw = fb.read(fb_size)
 
+            import struct
+            header = struct.pack('<HHH', fb_width, fb_height, rotation)
+            payload = header + raw
+
             handler.send_response(200)
             handler.send_header("Content-type", "application/octet-stream")
-            handler.send_header("Content-Length", str(len(raw)))
+            handler.send_header("Content-Length", str(len(payload)))
             handler.send_header("Cache-Control", "no-cache, no-store")
-            handler.send_header("X-FB-Width", "222")
-            handler.send_header("X-FB-Height", "480")
             handler.end_headers()
-            handler.wfile.write(raw)
+            handler.wfile.write(payload)
         except FileNotFoundError:
             # No framebuffer (not on pager) - try static fallback
             image_path = os.path.join(self.shared_data.webdir, 'screen.png')

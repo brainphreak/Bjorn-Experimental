@@ -146,7 +146,8 @@ const ConfigTab = {
         'screen_dim_timeout': 'Dim Screen After Inactivity (seconds)',
 
         // Theme
-        'override_theme_delays': 'Override Theme Animation Delays'
+        'override_theme_delays': 'Override Theme Animation Delays',
+        'override_theme_comment_delays': 'Override Theme Comment Delays'
     },
 
     getDisplayName(key) {

@@ -65,11 +65,13 @@ DEFAULT_LAYOUTS = {
             "x": 0, "y": 297, "w": 222, "h": 23,
         },
         "character": {
-            "x": 47, "y": 319, "w": 127, "h": 127,
+            "x": 38, "y": 327, "w": 145, "h": 145,
         },
         "corner_stats": {
             "area_x": 0, "area_w": 222,
-            "icon_size": 34, "font_size": 30,
+            "icon_size": 34, "font_size": 23,
+            "top_y": 325,
+            "bottom_y": 409,
         },
     },
     "landscape": {
@@ -199,6 +201,8 @@ class Display:
         self.BG_COLOR = self.pager.rgb(bg[0], bg[1], bg[2])
         self.TEXT_COLOR = self.pager.rgb(txt[0], txt[1], txt[2])
         self.ACCENT_COLOR = self.pager.rgb(acc[0], acc[1], acc[2])
+        tc = self.shared_data.theme_title_font_color
+        self.TITLE_COLOR = self.pager.rgb(tc[0], tc[1], tc[2]) if tc else self.TEXT_COLOR
         # Keep BLACK/WHITE for menu dialogs (always white-on-black)
         self.BLACK = self.pager.BLACK
         self.WHITE = self.pager.WHITE
@@ -809,12 +813,13 @@ class Display:
             self.pager.hline(L["x"], L["y"] + L["h"] - 1, L["w"], self.TEXT_COLOR)
 
         title = self.shared_data.display_name
-        fs = L["title_font_size"]
-        ty = L["y"] + L["title_y"]
-        # Center title within header region
+        fs = getattr(self.shared_data, 'theme_title_font_size', None) or L["title_font_size"]
+        # Center title horizontally and vertically within header (above the line)
         tw = self.pager.ttf_width(title, self.font_viking, fs)
+        th = self.pager.ttf_height(self.font_viking, fs)
         tx = L["x"] + (L["w"] - tw) // 2
-        self.pager.draw_ttf(tx, ty, title, self.TEXT_COLOR, self.font_viking, fs)
+        ty = L["y"] + (L["h"] - 1 - th) // 2
+        self.pager.draw_ttf(tx, ty, title, self.TITLE_COLOR, self.font_viking, fs)
 
     def draw_stats_grid(self):
         """Stats grid with icons and numbers (3x2 grid)."""
@@ -974,28 +979,36 @@ class Display:
         area_w = CS["area_w"]
 
         # Corner y positions: use explicit values if set, otherwise compute from character rect
-        top_y = CS.get("top_y", C["y"] + 15)
-        bottom_y = CS.get("bottom_y", C["y"] + C["h"] - icon_size - num_font - 4)
+        top_y = CS.get("top_y", C["y"] + 10)
+        bottom_y = CS.get("bottom_y", C["y"] + C["h"] - icon_size - num_font + 26)
 
         # TOP-LEFT: Coins
         x = area_x + 4
         self.draw_icon_scaled(x, top_y, icon_size, icon_size, 'gold')
-        self.pager.draw_ttf(x, top_y + icon_size + 2, str(self.shared_data.coinnbr), self.TEXT_COLOR, self.font_arial, num_font)
+        val = str(self.shared_data.coinnbr)
+        tw = self.pager.ttf_width(val, self.font_arial, num_font)
+        self.pager.draw_ttf(x + (icon_size - tw) // 2, top_y + icon_size + 2, val, self.TEXT_COLOR, self.font_arial, num_font)
 
         # BOTTOM-LEFT: Level
         x = area_x + 4
         self.draw_icon_scaled(x, bottom_y, icon_size, icon_size, 'level')
-        self.pager.draw_ttf(x, bottom_y + icon_size + 2, str(self.shared_data.levelnbr), self.TEXT_COLOR, self.font_arial, num_font)
+        val = str(self.shared_data.levelnbr)
+        tw = self.pager.ttf_width(val, self.font_arial, num_font)
+        self.pager.draw_ttf(x + (icon_size - tw) // 2, bottom_y + icon_size + 2, val, self.TEXT_COLOR, self.font_arial, num_font)
 
         # TOP-RIGHT: Network KB
         x = area_x + area_w - icon_size - 4
         self.draw_icon_scaled(x, top_y, icon_size, icon_size, 'networkkb')
-        self.pager.draw_ttf(x, top_y + icon_size + 2, str(self.shared_data.networkkbnbr), self.TEXT_COLOR, self.font_arial, num_font)
+        val = str(self.shared_data.networkkbnbr)
+        tw = self.pager.ttf_width(val, self.font_arial, num_font)
+        self.pager.draw_ttf(x + (icon_size - tw) // 2, top_y + icon_size + 2, val, self.TEXT_COLOR, self.font_arial, num_font)
 
         # BOTTOM-RIGHT: Attacks
         x = area_x + area_w - icon_size - 4
         self.draw_icon_scaled(x, bottom_y, icon_size, icon_size, 'attacks')
-        self.pager.draw_ttf(x, bottom_y + icon_size + 2, str(self.shared_data.attacksnbr), self.TEXT_COLOR, self.font_arial, num_font)
+        val = str(self.shared_data.attacksnbr)
+        tw = self.pager.ttf_width(val, self.font_arial, num_font)
+        self.pager.draw_ttf(x + (icon_size - tw) // 2, bottom_y + icon_size + 2, val, self.TEXT_COLOR, self.font_arial, num_font)
 
     # ------------------------------------------------------------------
     # Render + main loop

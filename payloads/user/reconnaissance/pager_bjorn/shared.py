@@ -188,6 +188,7 @@ class SharedData:
             "__title_theme__": "Theme",
             "theme": "bjorn",
             "override_theme_delays": False,
+            "override_theme_comment_delays": False,
         }
 
     def update_mac_blacklist(self):
@@ -739,6 +740,8 @@ class SharedData:
         self.theme_preferred_orientation = None
         self.theme_layout_portrait = {}
         self.theme_layout_landscape = {}
+        self.theme_title_font_color = None
+        self.theme_title_font_size = None
 
         # Load theme.json if the theme directory exists
         theme_json_path = os.path.join(theme_dir, "theme.json")
@@ -760,6 +763,8 @@ class SharedData:
                 self.theme_image_display_delaymax = theme_data.get("image_display_delaymax", None)
                 self.theme_comment_delaymin = theme_data.get("comment_delaymin", None)
                 self.theme_comment_delaymax = theme_data.get("comment_delaymax", None)
+                self.theme_title_font_color = theme_data.get("title_font_color", None)
+                self.theme_title_font_size = theme_data.get("title_font_size", None)
                 logger.info(f"Loaded theme '{theme_name}': display_name='{self.display_name}'")
             except (json.JSONDecodeError, IOError) as e:
                 logger.warning(f"Error reading theme.json for '{theme_name}': {e}")
@@ -858,7 +863,7 @@ class SharedData:
 
     def get_effective_comment_delays(self):
         """Return (min, max) comment delays, preferring theme values unless overridden."""
-        if not getattr(self, 'override_theme_delays', False):
+        if not getattr(self, 'override_theme_comment_delays', False):
             dmin = getattr(self, 'theme_comment_delaymin', None)
             dmax = getattr(self, 'theme_comment_delaymax', None)
             if dmin is not None and dmax is not None:

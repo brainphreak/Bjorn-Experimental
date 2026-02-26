@@ -17,6 +17,8 @@ Each theme lives in its own subdirectory under `themes/` and is selected via the
 | `image_display_delaymax` | number | Maximum seconds between animation frame changes |
 | `comment_delaymin` | number | Minimum seconds between LCD comment updates |
 | `comment_delaymax` | number | Maximum seconds between LCD comment updates |
+| `title_font_color` | [R, G, B] | Title text color (defaults to `text_color`) |
+| `title_font_size` | number | Title font size in pixels (defaults to layout value) |
 | `layout_portrait` | object | Optional layout coordinate overrides for portrait mode |
 | `layout_landscape` | object | Optional layout coordinate overrides for landscape mode |
 

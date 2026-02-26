@@ -10,6 +10,9 @@ var BjornTab = {
     scale: 1,
     fbWidth: 222,
     fbHeight: 480,
+    rotation: 0,
+    displayW: 222,
+    displayH: 480,
     refreshing: false,
 
     init() {
@@ -99,9 +102,39 @@ var BjornTab = {
 
             var ct = resp.headers.get('content-type') || '';
             if (ct.includes('octet-stream')) {
-                // Raw RGB565 framebuffer data - convert client-side
+                // Raw RGB565 framebuffer data with 6-byte header
                 var buf = await resp.arrayBuffer();
-                this.renderRGB565(buf);
+                // First 6 bytes: uint16 LE fb_width + uint16 LE fb_height + uint16 LE rotation
+                var header = new Uint16Array(buf, 0, 3);
+                var fw = header[0];
+                var fh = header[1];
+                var rot = header[2];
+
+                // Canvas always matches framebuffer memory layout
+                if (fw !== this.fbWidth || fh !== this.fbHeight) {
+                    this.fbWidth = fw;
+                    this.fbHeight = fh;
+                    this.canvas.width = fw;
+                    this.canvas.height = fh;
+                }
+
+                // Update display dimensions and CSS rotation if orientation changed
+                if (rot !== this.rotation) {
+                    this.rotation = rot;
+                    if (rot === 270) {
+                        // Landscape: fb is 222x480 in memory, display as 480x222
+                        this.displayW = fh;
+                        this.displayH = fw;
+                    } else {
+                        // Portrait: no rotation needed
+                        this.displayW = fw;
+                        this.displayH = fh;
+                    }
+                    this.applyZoom();
+                }
+
+                // Pixel data starts after the 6-byte header
+                this.renderRGB565(buf, 6);
             } else {
                 // Fallback: PNG image (no framebuffer on device)
                 var blob = await resp.blob();
@@ -120,8 +153,8 @@ var BjornTab = {
         }
     },
 
-    renderRGB565(buffer) {
-        var pixels = new Uint16Array(buffer);
+    renderRGB565(buffer, offset) {
+        var pixels = new Uint16Array(buffer, offset || 0);
         var imageData = this.ctx.createImageData(this.fbWidth, this.fbHeight);
         var data = imageData.data;
 
@@ -143,14 +176,32 @@ var BjornTab = {
     },
 
     applyZoom() {
+        var dw = this.displayW;
+        var dh = this.displayH;
+        var sw = Math.round(dw * this.scale);
+        var sh = Math.round(dh * this.scale);
+
         if (this.canvas) {
-            this.canvas.style.width = Math.round(this.fbWidth * this.scale) + 'px';
-            this.canvas.style.height = Math.round(this.fbHeight * this.scale) + 'px';
+            if (this.rotation === 270) {
+                // Canvas element is 222x480 but we display it as 480x222.
+                // Scale it so the visible result is sw x sh, then rotate.
+                var scaleX = sw / this.fbHeight;  // 480px fb height -> sw display width
+                var scaleY = sh / this.fbWidth;   // 222px fb width -> sh display height
+                this.canvas.style.transformOrigin = 'top left';
+                this.canvas.style.transform = 'translate(0px,' + sh + 'px) rotate(-90deg) scale(' + scaleX + ',' + scaleY + ')';
+                this.canvas.style.width = this.fbWidth + 'px';
+                this.canvas.style.height = this.fbHeight + 'px';
+            } else {
+                this.canvas.style.transform = '';
+                this.canvas.style.transformOrigin = '';
+                this.canvas.style.width = sw + 'px';
+                this.canvas.style.height = sh + 'px';
+            }
         }
         var frame = document.getElementById('lcd-frame');
         if (frame) {
-            frame.style.width = Math.round(this.fbWidth * this.scale + 20) + 'px';
-            frame.style.height = Math.round(this.fbHeight * this.scale + 20) + 'px';
+            frame.style.width = Math.round(sw + 20) + 'px';
+            frame.style.height = Math.round(sh + 20) + 'px';
         }
         var label = document.getElementById('lcd-zoom-label');
         if (label) label.textContent = Math.round(this.scale * 100) + '%';

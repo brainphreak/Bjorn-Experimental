@@ -1135,8 +1135,6 @@ select.form-input {
 
 .lcd-img {
     display: block;
-    width: 222px;
-    height: 480px;
     image-rendering: pixelated;
     border-radius: var(--radius);
 }
