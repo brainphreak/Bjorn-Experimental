@@ -136,6 +136,7 @@ class SharedData:
 
             "__title_network__": "Network & Scanning",
             "scan_interval": 300,
+            "scan_network_prefix": 24,
             "nmap_scan_aggressivity": "-T2",
             "vuln_scan_timeout": 120,
             "portstart": 1,

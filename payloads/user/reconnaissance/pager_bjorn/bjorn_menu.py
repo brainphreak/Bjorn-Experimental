@@ -355,8 +355,6 @@ class BjornMenu:
                 elif selected == 6:
                     # Exit
                     return None
-            elif btn == 'BACK':
-                return None
 
     def _show_message(self, text, color, subtext=None, subcolor=None):
         """Show a centered message on screen."""

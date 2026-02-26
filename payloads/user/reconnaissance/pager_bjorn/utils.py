@@ -1270,9 +1270,19 @@ class WebUtils:
         handler.send_response(200)
         handler.send_header("Content-type", "application/json")
         handler.end_headers()
+        # Merge saved config into default template order so web UI sections
+        # are always correct (saved keys follow default key ordering)
+        defaults = self.shared_data.get_default_config()
         with open(self.shared_data.shared_config_json, 'r') as f:
-            config = json.load(f)
-        handler.wfile.write(json.dumps(config).encode('utf-8'))
+            saved = json.load(f)
+        merged = {}
+        for key in defaults:
+            merged[key] = saved.get(key, defaults[key])
+        # Append any extra keys from saved config not in defaults
+        for key in saved:
+            if key not in merged:
+                merged[key] = saved[key]
+        handler.wfile.write(json.dumps(merged).encode('utf-8'))
 
     def restore_default_config(self, handler):
         handler.send_response(200)
