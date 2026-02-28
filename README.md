@@ -340,6 +340,8 @@ Bjorn supports a theme system that lets you customize the display name, fonts, c
 |-------|-------------|
 | `bjorn` | Default Viking theme with Norse personality and Celtic knot divider |
 | `clown` | CLOWNSEC theme with jester personality, circus commentary, and random HONKs |
+| `pirate` | Cap'n Plndr pirate theme with seafaring personality and nautical commentary |
+| `knight` | Sir Haxalot medieval knight theme with chivalric personality |
 
 ### Switching Themes
 
@@ -499,7 +501,9 @@ pager_bjorn/
 │   └── actions.json
 ├── themes/                # Theme packs
 │   ├── bjorn/             # Default Viking theme
-│   └── clown/             # CLOWNSEC jester theme
+│   ├── clown/             # CLOWNSEC jester theme
+│   ├── pirate/            # Cap'n Plndr pirate theme
+│   └── knight/            # Sir Haxalot knight theme
 ├── web/                   # Web UI (single-page app)
 │   ├── index.html         # SPA shell
 │   ├── css/
