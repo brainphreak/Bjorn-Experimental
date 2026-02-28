@@ -40,3 +40,32 @@ Themes can also override fonts, images, and comments by placing files in the exp
 - `images/` -- static icon overrides (e.g. `target.png`, `frise.png`)
 - `images/status/<action>/` -- character animation frame overrides
 - `comments/comments.json` -- dialogue text override
+
+## Available Themes
+
+| Theme | Directory | Author |
+|---|---|---|
+| Bjorn | `bjorn` | Infinition (default) |
+| ClownSec | `clown` | brAinphreAk |
+| Cap'n Plndr | `pirate` | brAinphreAk |
+| Sir Haxalot | `knight` | Zombie Joe |
+
+## Screenshots
+
+### ClownSec
+
+| | | | |
+|---|---|---|---|
+| ![ClownSec 1](screenshots/clownsec-1.png) | ![ClownSec 2](screenshots/clownsec-2.png) | ![ClownSec 3](screenshots/clownsec-3.png) | ![ClownSec 4](screenshots/clownsec-4.png) |
+
+### Sir Haxalot (Knight)
+
+| | | | |
+|---|---|---|---|
+| ![Knight 1](screenshots/knight-1.png) | ![Knight 2](screenshots/knight-2.png) | ![Knight 3](screenshots/knight-3.png) | ![Knight 4](screenshots/knight-4.png) |
+
+### Cap'n Plndr (Pirate)
+
+| | | | |
+|---|---|---|---|
+| ![Pirate 1](screenshots/pirate-1.png) | ![Pirate 2](screenshots/pirate-2.png) | ![Pirate 3](screenshots/pirate-3.png) | ![Pirate 4](screenshots/pirate-4.png) |

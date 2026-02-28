@@ -1,15 +1,15 @@
 {
-    "display_name": "PIRATE",
-    "menu_title": "PIRATE",
-    "web_title": "PIRATE",
+    "display_name": "Cap'n Plndr",
+    "menu_title": "Cap'n Plndr",
+    "web_title": "Cap'n Plndr",
     "bg_color": [255, 255, 255],
     "text_color": [0, 0, 0],
     "accent_color": [128, 128, 128],
     "title_font_color": [139, 0, 0],
     "title_font_size": 30,
     "animation_mode": "random",
-    "image_display_delaymin": 5,
+    "image_display_delaymin": 7,
     "image_display_delaymax": 15,
-    "comment_delaymin": 8,
+    "comment_delaymin": 10,
     "comment_delaymax": 20
 }

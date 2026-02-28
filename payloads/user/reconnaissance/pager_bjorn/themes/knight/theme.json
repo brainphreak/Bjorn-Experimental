@@ -1,0 +1,15 @@
+{
+    "display_name": "Sir Haxalot",
+    "menu_title": "Sir Haxalot",
+    "web_title": "Sir Haxalot",
+    "bg_color": [255, 255, 255],
+    "text_color": [0, 0, 0],
+    "accent_color": [128, 128, 128],
+    "title_font_color": [0, 0, 0],
+    "title_font_size": 20,
+    "animation_mode": "sequential",
+    "image_display_delaymin": 3,
+    "image_display_delaymax": 6,
+    "comment_delaymin": 15,
+    "comment_delaymax": 30
+}

@@ -80,7 +80,27 @@ class NmapVulnScanner:
         self.scan_results = []
         self.summary_file = self.shared_data.vuln_summary_file
         self.create_summary_file()
+        self._check_nse_available()
         logger.debug("NmapVulnScanner initialized.")
+
+    def _check_nse_available(self):
+        """Check if nmap NSE scripts are available. Logs warning if not."""
+        nmapdir = os.environ.get('NMAPDIR', '/usr/share/nmap')
+        scripts_dir = os.path.join(nmapdir, 'scripts')
+        if not os.path.isdir(scripts_dir):
+            logger.error(f"NSE scripts directory not found: {scripts_dir}")
+            logger.error("Vulnerability scanning will not work. Install nmap-full or bundle scripts.")
+            self.nse_available = False
+            return
+        # Spot-check a few scripts we actually use
+        test_scripts = ['http-enum.nse', 'http-vuln-cve2017-5638.nse']
+        found = sum(1 for s in test_scripts if os.path.exists(os.path.join(scripts_dir, s)))
+        if found == 0:
+            logger.error(f"NSE scripts not found in {scripts_dir} — vuln scanning will not work")
+            self.nse_available = False
+            return
+        logger.info(f"NSE scripts verified in {scripts_dir} ({len(os.listdir(scripts_dir))} scripts)")
+        self.nse_available = True
 
     def create_summary_file(self):
         """
@@ -145,6 +165,8 @@ class NmapVulnScanner:
                 capture_output=True, text=True,
                 timeout=batch_timeout
             )
+            if result.returncode == 0 and '|' not in result.stdout:
+                logger.warning(f"nmap returned no script output for {ip}:{port} — NSE scripts may not be installed")
             return result.stdout, True
         except subprocess.TimeoutExpired:
             return "", False
@@ -268,6 +290,10 @@ class NmapVulnScanner:
         """
         start_time = time.time()
         logger.lifecycle_start("NmapVulnScanner", ip)
+        if not self.nse_available:
+            logger.error(f"Skipping vuln scan for {ip} — NSE scripts not available")
+            logger.lifecycle_end("NmapVulnScanner", "failed", 0, ip)
+            return 'failed'
         self.shared_data.bjornorch_status = "NmapVulnScanner"
         ports = row["Ports"].split(";")
         try:

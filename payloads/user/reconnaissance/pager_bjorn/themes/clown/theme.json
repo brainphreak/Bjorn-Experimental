@@ -1,7 +1,7 @@
 {
-    "display_name": "CLOWN",
-    "menu_title": "CLOWN",
-    "web_title": "CLOWN",
+    "display_name": "ClownSec",
+    "menu_title": "ClownSec",
+    "web_title": "ClownSec Clown",
     "bg_color": [255, 255, 255],
     "text_color": [0, 0, 0],
     "accent_color": [128, 128, 128],
