@@ -160,13 +160,17 @@ class NmapVulnScanner:
             if args_parts:
                 cmd.extend(["--script-args", ",".join(args_parts)])
             cmd.extend(["-p", port, ip])
+            start = time.time()
             result = subprocess.run(
                 cmd,
                 capture_output=True, text=True,
                 timeout=batch_timeout
             )
-            if result.returncode == 0 and '|' not in result.stdout:
-                logger.warning(f"nmap returned no script output for {ip}:{port} — NSE scripts may not be installed")
+            elapsed = time.time() - start
+            # Warn only if nmap returned suspiciously fast with no output —
+            # indicates scripts failed to load, not just "no vulns found"
+            if result.returncode == 0 and '|' not in result.stdout and elapsed < 5:
+                logger.warning(f"nmap returned no script output in {elapsed:.1f}s for {ip}:{port} — NSE scripts may not be installed")
             return result.stdout, True
         except subprocess.TimeoutExpired:
             return "", False
