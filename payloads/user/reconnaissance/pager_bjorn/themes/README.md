@@ -1,6 +1,6 @@
 # Themes
 
-Each theme lives in its own subdirectory under `themes/` and is selected via the `theme` config key (e.g. `"theme": "clown"`).
+Each theme lives in its own subdirectory under `themes/` and is selected via the `theme` config key (e.g. `"theme": "clown"`). All themes support both portrait and landscape display orientations automatically.
 
 ## theme.json format
 

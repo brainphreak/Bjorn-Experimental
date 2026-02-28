@@ -332,7 +332,7 @@ All data is stored in `/mmc/root/loot/bjorn/`:
 
 ## Themes
 
-Bjorn supports a theme system that lets you customize the display name, fonts, colors, animations, and commentary personality. Themes live in `themes/` and are selected via the `theme` setting in `shared_config.json` or the web UI Config tab.
+Bjorn supports a theme system that lets you customize the display name, fonts, colors, animations, and commentary personality. All themes support both portrait and landscape display orientations. Themes live in `themes/` and are selected via the `theme` setting in `shared_config.json` or the web UI Config tab.
 
 ### Included Themes
 
